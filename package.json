@@ -12,10 +12,11 @@
     "db:studio": "prisma studio"
   },
   "dependencies": {
-    "cors": "^2.8.5"
+    "cors": "^2.8.5",
+    "pg": "^8.11.3",
+    "@prisma/client": "^5"
   },
   "devDependencies": {
-    "@prisma/client": "^5",
     "@types/bun": "latest",
     "@types/cors": "^2.8.17",
     "@types/pg": "^8.16.0",
