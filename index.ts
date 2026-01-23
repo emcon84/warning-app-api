@@ -3,7 +3,7 @@ import { join } from "path";
 import { existsSync, mkdirSync } from "fs";
 
 // Tipos
-type ReportCategory = "basura" | "alumbrado" | "baches" | "pastizales";
+type ReportCategory = "basura" | "alumbrado" | "baches" | "pastizales" | "robo";
 
 interface CreateReportBody {
   lat: number;
