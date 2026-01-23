@@ -3,7 +3,28 @@ import { join } from "path";
 import { existsSync, mkdirSync } from "fs";
 
 // Tipos
-type ReportCategory = "basura" | "alumbrado" | "baches" | "pastizales" | "robo";
+type ReportCategory =
+  | "basura"
+  | "alumbrado"
+  | "baches"
+  | "pastizales"
+  | "robo"
+  | "fugas_agua"
+  | "drenaje"
+  | "banquetas"
+  | "semaforos"
+  | "limpieza"
+  | "graffiti"
+  | "escombros"
+  | "arboles"
+  | "vandalismo"
+  | "vehiculos_abandonados"
+  | "iluminacion"
+  | "animales_callejeros"
+  | "plagas"
+  | "senalizacion"
+  | "estacionamiento"
+  | "transporte";
 
 interface CreateReportBody {
   lat: number;
