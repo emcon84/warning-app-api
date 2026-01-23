@@ -35,6 +35,7 @@ interface CreateReportBody {
   direccion: string;
   photo?: string;
   fecha?: string;
+  isUrgent?: boolean;
 }
 
 // Crear directorio uploads si no existe
@@ -199,8 +200,8 @@ const server = Bun.serve({
         const id = `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
 
         const result = await db.query(
-          `INSERT INTO "Report" (id, lat, lng, category, description, barrio, direccion, photo, "createdAt", "updatedAt")
-           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+          `INSERT INTO "Report" (id, lat, lng, category, description, barrio, direccion, photo, "isUrgent", "createdAt", "updatedAt")
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
            RETURNING *`,
           [
             id,
@@ -211,6 +212,7 @@ const server = Bun.serve({
             body.barrio,
             body.direccion,
             photoPath,
+            body.isUrgent || false,
             createdAt,
             createdAt,
           ],
