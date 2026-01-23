@@ -1,4 +1,6 @@
 import { db } from "./lib/db";
+import { join } from "path";
+import { existsSync, mkdirSync } from "fs";
 
 // Tipos
 type ReportCategory = "basura" | "alumbrado" | "baches" | "pastizales";
@@ -12,6 +14,12 @@ interface CreateReportBody {
   direccion: string;
   photo?: string;
   fecha?: string;
+}
+
+// Crear directorio uploads si no existe
+const uploadsDir = join(import.meta.dir, "uploads");
+if (!existsSync(uploadsDir)) {
+  mkdirSync(uploadsDir, { recursive: true });
 }
 
 // Configuración CORS
@@ -36,6 +44,19 @@ const server = Bun.serve({
     }
 
     try {
+      // GET /uploads/:filename - Servir imágenes
+      if (path.startsWith("/uploads/") && method === "GET") {
+        const filename = path.split("/")[2];
+        const filePath = join(uploadsDir, filename);
+
+        if (!existsSync(filePath)) {
+          return new Response("Imagen no encontrada", { status: 404 });
+        }
+
+        const file = Bun.file(filePath);
+        return new Response(file);
+      }
+
       // GET /api/reports - Obtener todos los reportes
       if (path === "/api/reports" && method === "GET") {
         const category = url.searchParams.get("category");
@@ -98,7 +119,42 @@ const server = Bun.serve({
 
       // POST /api/reports - Crear un nuevo reporte
       if (path === "/api/reports" && method === "POST") {
-        const body = (await req.json()) as CreateReportBody;
+        const contentType = req.headers.get("content-type") || "";
+
+        let body: any;
+        let photoPath: string | null = null;
+
+        // Manejar FormData (con imagen)
+        if (contentType.includes("multipart/form-data")) {
+          const formData = await req.formData();
+
+          body = {
+            lat: parseFloat(formData.get("lat") as string),
+            lng: parseFloat(formData.get("lng") as string),
+            category: formData.get("category") as ReportCategory,
+            description: formData.get("description") as string,
+            barrio: formData.get("barrio") as string,
+            direccion: formData.get("direccion") as string,
+            fecha: formData.get("fecha") as string,
+          };
+
+          const photo = formData.get("photo") as File | null;
+
+          if (photo && photo.size > 0) {
+            // Generar nombre único para la imagen
+            const ext = photo.name.split(".").pop() || "jpg";
+            const filename = `${Date.now()}-${Math.random().toString(36).substr(2, 9)}.${ext}`;
+            const filePath = join(uploadsDir, filename);
+
+            // Guardar archivo
+            await Bun.write(filePath, photo);
+            photoPath = `/uploads/${filename}`;
+          }
+        } else {
+          // Manejar JSON (sin imagen o con base64 - retrocompatibilidad)
+          body = await req.json();
+          photoPath = body.photo || null;
+        }
 
         // Validaciones
         if (
@@ -133,7 +189,7 @@ const server = Bun.serve({
             body.description,
             body.barrio,
             body.direccion,
-            body.photo || null,
+            photoPath,
             createdAt,
             createdAt,
           ],
