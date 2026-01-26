@@ -1,7 +1,28 @@
 import { db } from "./lib/db";
 import { join } from "path";
-import { existsSync, mkdirSync } from "fs";
+import { existsSync, mkdirSync, readFileSync } from "fs";
 import webPush from "web-push";
+
+// Cargar .env manualmente (necesario para PM2)
+try {
+  const envPath = join(import.meta.dir, ".env");
+  if (existsSync(envPath)) {
+    const envContent = readFileSync(envPath, "utf-8");
+    envContent.split("\n").forEach((line) => {
+      const trimmed = line.trim();
+      if (trimmed && !trimmed.startsWith("#")) {
+        const [key, ...valueParts] = trimmed.split("=");
+        if (key && valueParts.length > 0) {
+          const value = valueParts.join("=").replace(/^["']|["']$/g, "");
+          process.env[key.trim()] = value.trim();
+        }
+      }
+    });
+    console.log("✅ Variables .env cargadas correctamente");
+  }
+} catch (error) {
+  console.error("⚠️ Error cargando .env:", error);
+}
 
 // Configurar VAPID
 webPush.setVapidDetails(
