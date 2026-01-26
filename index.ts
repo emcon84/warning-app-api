@@ -1,6 +1,14 @@
 import { db } from "./lib/db";
 import { join } from "path";
 import { existsSync, mkdirSync } from "fs";
+import webPush from "web-push";
+
+// Configurar VAPID
+webPush.setVapidDetails(
+  process.env.VAPID_SUBJECT || "mailto:admin@reconquista.gob.ar",
+  process.env.VAPID_PUBLIC_KEY!,
+  process.env.VAPID_PRIVATE_KEY!,
+);
 
 // Tipos
 type ReportCategory =
@@ -218,7 +226,57 @@ const server = Bun.serve({
           ],
         );
 
-        return new Response(JSON.stringify(result.rows[0]), {
+        const newReport = result.rows[0];
+
+        // Enviar notificaciones push a todos los suscriptores
+        try {
+          const subscriptions = await db.query(
+            'SELECT endpoint, p256dh, auth FROM "PushSubscription"',
+          );
+
+          const notificationPayload = JSON.stringify({
+            title: `Nuevo Reporte: ${newReport.category}`,
+            body: `${newReport.description.substring(0, 100)}${newReport.description.length > 100 ? "..." : ""}`,
+            icon: "/icon-192x192.png",
+            badge: "/icon-192x192.png",
+            data: {
+              reportId: newReport.id,
+              url: "/",
+            },
+          });
+
+          const sendPromises = subscriptions.rows.map(async (sub) => {
+            try {
+              await webPush.sendNotification(
+                {
+                  endpoint: sub.endpoint,
+                  keys: {
+                    p256dh: sub.p256dh,
+                    auth: sub.auth,
+                  },
+                },
+                notificationPayload,
+              );
+            } catch (error: any) {
+              console.error("Error enviando notificación:", error);
+              // Si la suscripción es inválida (410), eliminarla
+              if (error.statusCode === 410) {
+                await db.query(
+                  'DELETE FROM "PushSubscription" WHERE endpoint = $1',
+                  [sub.endpoint],
+                );
+              }
+            }
+          });
+
+          await Promise.all(sendPromises);
+          console.log(`Notificaciones enviadas a ${subscriptions.rows.length} suscriptores`);
+        } catch (notifError) {
+          console.error("Error enviando notificaciones push:", notifError);
+          // No fallar la creación del reporte si las notificaciones fallan
+        }
+
+        return new Response(JSON.stringify(newReport), {
           status: 201,
           headers: { ...corsHeaders, "Content-Type": "application/json" },
         });
@@ -333,6 +391,75 @@ const server = Bun.serve({
             byBarrio: byBarrioResult.rows,
             recent: recentResult.rows,
           }),
+          {
+            headers: { ...corsHeaders, "Content-Type": "application/json" },
+          },
+        );
+      }
+
+      // POST /api/push/subscribe - Suscribir a notificaciones push
+      if (path === "/api/push/subscribe" && method === "POST") {
+        const body = await req.json();
+        const { endpoint, keys } = body;
+
+        if (!endpoint || !keys?.p256dh || !keys?.auth) {
+          return new Response(
+            JSON.stringify({ error: "Datos de suscripción inválidos" }),
+            {
+              status: 400,
+              headers: { ...corsHeaders, "Content-Type": "application/json" },
+            },
+          );
+        }
+
+        // Insertar o actualizar suscripción
+        await db.query(
+          `INSERT INTO "PushSubscription" (id, endpoint, p256dh, auth, "createdAt", "updatedAt")
+           VALUES (gen_random_uuid(), $1, $2, $3, NOW(), NOW())
+           ON CONFLICT (endpoint) DO UPDATE SET
+           p256dh = $2, auth = $3, "updatedAt" = NOW()`,
+          [endpoint, keys.p256dh, keys.auth],
+        );
+
+        return new Response(
+          JSON.stringify({ message: "Suscripción guardada exitosamente" }),
+          {
+            headers: { ...corsHeaders, "Content-Type": "application/json" },
+          },
+        );
+      }
+
+      // POST /api/push/unsubscribe - Desuscribir de notificaciones
+      if (path === "/api/push/unsubscribe" && method === "POST") {
+        const body = await req.json();
+        const { endpoint } = body;
+
+        if (!endpoint) {
+          return new Response(
+            JSON.stringify({ error: "Endpoint requerido" }),
+            {
+              status: 400,
+              headers: { ...corsHeaders, "Content-Type": "application/json" },
+            },
+          );
+        }
+
+        await db.query('DELETE FROM "PushSubscription" WHERE endpoint = $1', [
+          endpoint,
+        ]);
+
+        return new Response(
+          JSON.stringify({ message: "Suscripción eliminada exitosamente" }),
+          {
+            headers: { ...corsHeaders, "Content-Type": "application/json" },
+          },
+        );
+      }
+
+      // GET /api/push/vapid-public-key - Obtener clave pública VAPID
+      if (path === "/api/push/vapid-public-key" && method === "GET") {
+        return new Response(
+          JSON.stringify({ publicKey: process.env.VAPID_PUBLIC_KEY }),
           {
             headers: { ...corsHeaders, "Content-Type": "application/json" },
           },
