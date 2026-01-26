@@ -21,6 +21,7 @@
     "@types/bun": "latest",
     "@types/cors": "^2.8.17",
     "@types/pg": "^8.16.0",
+    "@types/web-push": "^3.6.4",
     "prisma": "^5"
   }
 }
