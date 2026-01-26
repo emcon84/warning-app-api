@@ -270,7 +270,9 @@ const server = Bun.serve({
           });
 
           await Promise.all(sendPromises);
-          console.log(`Notificaciones enviadas a ${subscriptions.rows.length} suscriptores`);
+          console.log(
+            `Notificaciones enviadas a ${subscriptions.rows.length} suscriptores`,
+          );
         } catch (notifError) {
           console.error("Error enviando notificaciones push:", notifError);
           // No fallar la creación del reporte si las notificaciones fallan
@@ -435,13 +437,10 @@ const server = Bun.serve({
         const { endpoint } = body;
 
         if (!endpoint) {
-          return new Response(
-            JSON.stringify({ error: "Endpoint requerido" }),
-            {
-              status: 400,
-              headers: { ...corsHeaders, "Content-Type": "application/json" },
-            },
-          );
+          return new Response(JSON.stringify({ error: "Endpoint requerido" }), {
+            status: 400,
+            headers: { ...corsHeaders, "Content-Type": "application/json" },
+          });
         }
 
         await db.query('DELETE FROM "PushSubscription" WHERE endpoint = $1', [
