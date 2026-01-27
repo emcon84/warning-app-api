@@ -19,6 +19,7 @@ model Report {
   barrio      String
   direccion   String
   photo       String?
+  photos      String[]  @default([])
   isUrgent    Boolean  @default(false)
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt

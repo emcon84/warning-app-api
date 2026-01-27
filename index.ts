@@ -173,9 +173,9 @@ const server = Bun.serve({
         const contentType = req.headers.get("content-type") || "";
 
         let body: any;
-        let photoPath: string | null = null;
+        let photoPaths: string[] = [];
 
-        // Manejar FormData (con imagen)
+        // Manejar FormData (con imágenes)
         if (contentType.includes("multipart/form-data")) {
           const formData = await req.formData();
 
@@ -189,22 +189,38 @@ const server = Bun.serve({
             fecha: formData.get("fecha") as string,
           };
 
-          const photo = formData.get("photo") as File | null;
+          // Obtener todas las fotos (photo, photo0, photo1, photo2, etc.)
+          const photos: File[] = [];
 
-          if (photo && photo.size > 0) {
-            // Generar nombre único para la imagen
+          // Intentar obtener 'photo' (compatibilidad)
+          const singlePhoto = formData.get("photo") as File | null;
+          if (singlePhoto && singlePhoto.size > 0) {
+            photos.push(singlePhoto);
+          }
+
+          // Intentar obtener múltiples fotos (photo0, photo1, etc.)
+          let index = 0;
+          while (true) {
+            const photo = formData.get(`photo${index}`) as File | null;
+            if (!photo || photo.size === 0) break;
+            photos.push(photo);
+            index++;
+          }
+
+          // Guardar todas las fotos
+          for (const photo of photos) {
             const ext = photo.name.split(".").pop() || "jpg";
             const filename = `${Date.now()}-${Math.random().toString(36).substr(2, 9)}.${ext}`;
             const filePath = join(uploadsDir, filename);
-
-            // Guardar archivo
             await Bun.write(filePath, photo);
-            photoPath = `/uploads/${filename}`;
+            photoPaths.push(`/uploads/${filename}`);
           }
         } else {
           // Manejar JSON (sin imagen o con base64 - retrocompatibilidad)
           body = await req.json();
-          photoPath = body.photo || null;
+          if (body.photo) {
+            photoPaths = [body.photo];
+          }
         }
 
         // Validaciones
@@ -229,8 +245,8 @@ const server = Bun.serve({
         const id = `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
 
         const result = await db.query(
-          `INSERT INTO "Report" (id, lat, lng, category, description, barrio, direccion, photo, "isUrgent", "createdAt", "updatedAt")
-           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+          `INSERT INTO "Report" (id, lat, lng, category, description, barrio, direccion, photo, photos, "isUrgent", "createdAt", "updatedAt")
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
            RETURNING *`,
           [
             id,
@@ -240,7 +256,8 @@ const server = Bun.serve({
             body.description,
             body.barrio,
             body.direccion,
-            photoPath,
+            photoPaths[0] || null, // Mantener compatibilidad con photo
+            photoPaths, // Array de fotos
             body.isUrgent || false,
             createdAt,
             createdAt,
