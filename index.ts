@@ -385,6 +385,86 @@ const server = Bun.serve({
         });
       }
 
+      // PUT /api/reports/:id - Actualizar un reporte
+      if (path.startsWith("/api/reports/") && method === "PUT") {
+        const id = path.split("/")[3];
+        const formData = await req.formData();
+
+        const category = formData.get("category") as ReportCategory;
+        const description = formData.get("description") as string;
+        const barrio = formData.get("barrio") as string;
+        const direccion = formData.get("direccion") as string;
+        const isUrgent = formData.get("isUrgent") === "true";
+
+        // Validar campos requeridos
+        if (!category || !description || !barrio || !direccion) {
+          return new Response(
+            JSON.stringify({ error: "Faltan campos requeridos" }),
+            {
+              status: 400,
+              headers: { ...corsHeaders, "Content-Type": "application/json" },
+            },
+          );
+        }
+
+        // Manejar fotos nuevas si se enviaron
+        const photoFiles: File[] = [];
+        let photoIndex = 0;
+        while (formData.has(`photo${photoIndex}`)) {
+          const file = formData.get(`photo${photoIndex}`) as File;
+          if (file && file.size > 0) {
+            photoFiles.push(file);
+          }
+          photoIndex++;
+        }
+
+        let photoPaths: string[] = [];
+        if (photoFiles.length > 0) {
+          // Guardar las nuevas fotos
+          for (const file of photoFiles) {
+            const filename = `${Date.now()}-${Math.random().toString(36).substring(7)}.jpg`;
+            const filepath = join(uploadsDir, filename);
+            await Bun.write(filepath, await file.arrayBuffer());
+            photoPaths.push(`/uploads/${filename}`);
+          }
+        } else {
+          // Mantener las fotos existentes si no se subieron nuevas
+          const existingReport = await db.query(
+            'SELECT photos FROM "Report" WHERE id = $1',
+            [id],
+          );
+          if (existingReport.rows.length > 0) {
+            photoPaths = existingReport.rows[0].photos || [];
+          }
+        }
+
+        // Actualizar el reporte
+        const result = await db.query(
+          `UPDATE "Report" 
+           SET category = $1, description = $2, barrio = $3, direccion = $4, 
+               photos = $5, "isUrgent" = $6, "updatedAt" = NOW()
+           WHERE id = $7
+           RETURNING *`,
+          [category, description, barrio, direccion, photoPaths, isUrgent, id],
+        );
+
+        if (result.rows.length === 0) {
+          return new Response(
+            JSON.stringify({ error: "Reporte no encontrado" }),
+            {
+              status: 404,
+              headers: { ...corsHeaders, "Content-Type": "application/json" },
+            },
+          );
+        }
+
+        const updatedReport = result.rows[0];
+
+        return new Response(JSON.stringify(updatedReport), {
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+
       // DELETE /api/reports/:id - Eliminar un reporte
       if (path.startsWith("/api/reports/") && method === "DELETE") {
         const id = path.split("/")[3];
