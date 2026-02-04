@@ -38,6 +38,7 @@ type ReportCategory =
   | "baches"
   | "pastizales"
   | "robo"
+  | "personas_sospechosas"
   | "fugas_agua"
   | "drenaje"
   | "banquetas"
