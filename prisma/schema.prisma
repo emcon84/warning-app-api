@@ -43,7 +43,8 @@ model Doctor {
   lng            Float
   obrasSociales  String[]        @default([])
   activo         Boolean         @default(true)
-  confirmaciones Confirmacion[]
+  confirmaciones       Confirmacion[]
+  turnosDisponibilidad TurnoDisponibilidad[]
   createdAt      DateTime        @default(now())
   updatedAt      DateTime        @updatedAt
 
@@ -61,6 +62,22 @@ model Confirmacion {
 
   @@index([doctorId])
   @@index([obraSocial])
+}
+
+model TurnoDisponibilidad {
+  id          String   @id @default(cuid())
+  doctorId    String
+  doctor      Doctor   @relation(fields: [doctorId], references: [id], onDelete: Cascade)
+  dias        String[]
+  horario     String
+  tipoTurno   String
+  obraSocial  String   @default("Todas")
+  nota        String?
+  createdAt   DateTime @default(now())
+  expiresAt   DateTime
+
+  @@index([doctorId])
+  @@index([expiresAt])
 }
 
 model PushSubscription {
