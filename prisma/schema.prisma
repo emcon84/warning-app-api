@@ -29,3 +29,45 @@ model Report {
   @@index([barrio])
   @@index([isUrgent])
 }
+
+model Doctor {
+  id             String          @id @default(cuid())
+  nombre         String
+  especialidad   String
+  direccion      String
+  barrio         String          @default("")
+  ciudad         String          @default("Reconquista")
+  telefono       String?
+  whatsapp       String?
+  lat            Float
+  lng            Float
+  obrasSociales  String[]        @default([])
+  activo         Boolean         @default(true)
+  confirmaciones Confirmacion[]
+  createdAt      DateTime        @default(now())
+  updatedAt      DateTime        @updatedAt
+
+  @@index([especialidad])
+  @@index([ciudad])
+}
+
+model Confirmacion {
+  id         String   @id @default(cuid())
+  doctorId   String
+  doctor     Doctor   @relation(fields: [doctorId], references: [id], onDelete: Cascade)
+  obraSocial String
+  acepta     Boolean
+  createdAt  DateTime @default(now())
+
+  @@index([doctorId])
+  @@index([obraSocial])
+}
+
+model PushSubscription {
+  id        String   @id @default(cuid())
+  endpoint  String   @unique
+  p256dh    String
+  auth      String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}

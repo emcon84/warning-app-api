@@ -2,6 +2,7 @@ import { db } from "./lib/db";
 import { join } from "path";
 import { existsSync, mkdirSync, readFileSync } from "fs";
 import webPush from "web-push";
+import { OBRAS_SOCIALES } from "./lib/constants";
 
 // Cargar .env manualmente (necesario para PM2)
 try {
@@ -583,6 +584,313 @@ const server = Bun.serve({
           },
         );
       }
+
+      // ─── DOCTORS ─────────────────────────────────────────────────────────
+
+      // GET /api/doctors - Lista médicos con filtros opcionales
+      if (path === "/api/doctors" && method === "GET") {
+        const especialidad = url.searchParams.get("especialidad");
+        const obraSocial = url.searchParams.get("obraSocial");
+        const ciudad = url.searchParams.get("ciudad");
+
+        let query = 'SELECT * FROM "Doctor" WHERE activo = true';
+        const params: any[] = [];
+        let paramCount = 1;
+
+        if (especialidad) {
+          query += ` AND especialidad = $${paramCount++}`;
+          params.push(especialidad);
+        }
+        if (ciudad) {
+          query += ` AND ciudad ILIKE $${paramCount++}`;
+          params.push(`%${ciudad}%`);
+        }
+        if (obraSocial) {
+          query += ` AND $${paramCount++} = ANY("obrasSociales")`;
+          params.push(obraSocial);
+        }
+
+        query += ' ORDER BY nombre ASC';
+
+        const doctorsResult = await db.query(query, params);
+        const doctors = doctorsResult.rows;
+
+        // Para cada doctor, obtener últimas 10 confirmaciones agrupadas por obraSocial
+        const doctorsWithConfirmaciones = await Promise.all(
+          doctors.map(async (doctor: any) => {
+            const confResult = await db.query(
+              `SELECT * FROM "Confirmacion"
+               WHERE "doctorId" = $1
+               ORDER BY "createdAt" DESC
+               LIMIT 10`,
+              [doctor.id]
+            );
+            return { ...doctor, confirmaciones: confResult.rows };
+          })
+        );
+
+        return new Response(JSON.stringify(doctorsWithConfirmaciones), {
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+
+      // GET /api/doctors/:id - Un doctor con todas sus confirmaciones
+      if (path.match(/^\/api\/doctors\/[^/]+$/) && method === "GET") {
+        const id = path.split("/")[3];
+
+        const doctorResult = await db.query(
+          'SELECT * FROM "Doctor" WHERE id = $1',
+          [id]
+        );
+
+        if (doctorResult.rows.length === 0) {
+          return new Response(
+            JSON.stringify({ error: "Médico no encontrado" }),
+            {
+              status: 404,
+              headers: { ...corsHeaders, "Content-Type": "application/json" },
+            }
+          );
+        }
+
+        const confResult = await db.query(
+          `SELECT * FROM "Confirmacion"
+           WHERE "doctorId" = $1
+           ORDER BY "createdAt" DESC`,
+          [id]
+        );
+
+        const doctor = { ...doctorResult.rows[0], confirmaciones: confResult.rows };
+
+        return new Response(JSON.stringify(doctor), {
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+
+      // POST /api/doctors - Crear doctor
+      if (path === "/api/doctors" && method === "POST") {
+        const body = await req.json();
+        const { nombre, especialidad, direccion, barrio, ciudad, telefono, whatsapp, lat, lng, obrasSociales } = body;
+
+        if (!nombre || !especialidad || !direccion || lat === undefined || lng === undefined) {
+          return new Response(
+            JSON.stringify({ error: "Faltan campos requeridos: nombre, especialidad, direccion, lat, lng" }),
+            {
+              status: 400,
+              headers: { ...corsHeaders, "Content-Type": "application/json" },
+            }
+          );
+        }
+
+        const id = `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+        const now = new Date();
+
+        const result = await db.query(
+          `INSERT INTO "Doctor" (id, nombre, especialidad, direccion, barrio, ciudad, telefono, whatsapp, lat, lng, "obrasSociales", activo, "createdAt", "updatedAt")
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, true, $12, $13)
+           RETURNING *`,
+          [
+            id,
+            nombre,
+            especialidad,
+            direccion,
+            barrio || "",
+            ciudad || "Reconquista",
+            telefono || null,
+            whatsapp || null,
+            lat,
+            lng,
+            obrasSociales || [],
+            now,
+            now,
+          ]
+        );
+
+        return new Response(JSON.stringify(result.rows[0]), {
+          status: 201,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+
+      // PUT /api/doctors/:id - Actualizar doctor
+      if (path.match(/^\/api\/doctors\/[^/]+$/) && method === "PUT") {
+        const id = path.split("/")[3];
+        const body = await req.json();
+
+        const updates: string[] = [];
+        const params: any[] = [];
+        let paramCount = 1;
+
+        if (body.nombre !== undefined) { updates.push(`nombre = $${paramCount++}`); params.push(body.nombre); }
+        if (body.especialidad !== undefined) { updates.push(`especialidad = $${paramCount++}`); params.push(body.especialidad); }
+        if (body.direccion !== undefined) { updates.push(`direccion = $${paramCount++}`); params.push(body.direccion); }
+        if (body.barrio !== undefined) { updates.push(`barrio = $${paramCount++}`); params.push(body.barrio); }
+        if (body.ciudad !== undefined) { updates.push(`ciudad = $${paramCount++}`); params.push(body.ciudad); }
+        if (body.telefono !== undefined) { updates.push(`telefono = $${paramCount++}`); params.push(body.telefono); }
+        if (body.whatsapp !== undefined) { updates.push(`whatsapp = $${paramCount++}`); params.push(body.whatsapp); }
+        if (body.lat !== undefined) { updates.push(`lat = $${paramCount++}`); params.push(body.lat); }
+        if (body.lng !== undefined) { updates.push(`lng = $${paramCount++}`); params.push(body.lng); }
+        if (body.obrasSociales !== undefined) { updates.push(`"obrasSociales" = $${paramCount++}`); params.push(body.obrasSociales); }
+        if (body.activo !== undefined) { updates.push(`activo = $${paramCount++}`); params.push(body.activo); }
+
+        updates.push(`"updatedAt" = $${paramCount++}`);
+        params.push(new Date());
+        params.push(id);
+
+        const result = await db.query(
+          `UPDATE "Doctor" SET ${updates.join(", ")} WHERE id = $${paramCount} RETURNING *`,
+          params
+        );
+
+        if (result.rows.length === 0) {
+          return new Response(
+            JSON.stringify({ error: "Médico no encontrado" }),
+            {
+              status: 404,
+              headers: { ...corsHeaders, "Content-Type": "application/json" },
+            }
+          );
+        }
+
+        return new Response(JSON.stringify(result.rows[0]), {
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+
+      // DELETE /api/doctors/:id - Eliminar doctor
+      if (path.match(/^\/api\/doctors\/[^/]+$/) && method === "DELETE") {
+        const id = path.split("/")[3];
+
+        const result = await db.query(
+          'DELETE FROM "Doctor" WHERE id = $1 RETURNING *',
+          [id]
+        );
+
+        if (result.rows.length === 0) {
+          return new Response(
+            JSON.stringify({ error: "Médico no encontrado" }),
+            {
+              status: 404,
+              headers: { ...corsHeaders, "Content-Type": "application/json" },
+            }
+          );
+        }
+
+        return new Response(JSON.stringify({ message: "Médico eliminado" }), {
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+
+      // POST /api/doctors/:id/confirmaciones - Agregar confirmación
+      if (path.match(/^\/api\/doctors\/[^/]+\/confirmaciones$/) && method === "POST") {
+        const id = path.split("/")[3];
+        const body = await req.json();
+        const { obraSocial, acepta } = body;
+
+        if (!obraSocial || acepta === undefined) {
+          return new Response(
+            JSON.stringify({ error: "Faltan campos: obraSocial, acepta" }),
+            {
+              status: 400,
+              headers: { ...corsHeaders, "Content-Type": "application/json" },
+            }
+          );
+        }
+
+        // Verificar que el doctor existe
+        const doctorCheck = await db.query('SELECT id FROM "Doctor" WHERE id = $1', [id]);
+        if (doctorCheck.rows.length === 0) {
+          return new Response(
+            JSON.stringify({ error: "Médico no encontrado" }),
+            {
+              status: 404,
+              headers: { ...corsHeaders, "Content-Type": "application/json" },
+            }
+          );
+        }
+
+        const confId = `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+
+        await db.query(
+          `INSERT INTO "Confirmacion" (id, "doctorId", "obraSocial", acepta, "createdAt")
+           VALUES ($1, $2, $3, $4, NOW())`,
+          [confId, id, obraSocial, acepta]
+        );
+
+        // Recalcular obrasSociales basándose en últimas 5 confirmaciones por obra social
+        const nuevasObrasSociales: string[] = [];
+        for (const os of OBRAS_SOCIALES) {
+          const ultimas5 = await db.query(
+            `SELECT acepta FROM "Confirmacion"
+             WHERE "doctorId" = $1 AND "obraSocial" = $2
+             ORDER BY "createdAt" DESC
+             LIMIT 5`,
+            [id, os]
+          );
+          if (ultimas5.rows.length > 0) {
+            const aceptan = ultimas5.rows.filter((r: any) => r.acepta).length;
+            const total = ultimas5.rows.length;
+            if (aceptan > total / 2) {
+              nuevasObrasSociales.push(os);
+            }
+          }
+        }
+
+        const updatedDoctor = await db.query(
+          `UPDATE "Doctor" SET "obrasSociales" = $1, "updatedAt" = NOW() WHERE id = $2 RETURNING *`,
+          [nuevasObrasSociales, id]
+        );
+
+        return new Response(JSON.stringify(updatedDoctor.rows[0]), {
+          status: 201,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+
+      // GET /api/doctors/:id/disponibilidad - Disponibilidades vigentes
+      if (path.match(/^\/api\/doctors\/[^/]+\/disponibilidad$/) && method === "GET") {
+        const id = path.split("/")[3];
+        const result = await db.query(
+          `SELECT * FROM "TurnoDisponibilidad"
+           WHERE "doctorId" = $1 AND "expiresAt" > NOW()
+           ORDER BY "createdAt" DESC
+           LIMIT 5`,
+          [id]
+        );
+        return new Response(JSON.stringify(result.rows), {
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+
+      // POST /api/doctors/:id/disponibilidad - Reportar disponibilidad
+      if (path.match(/^\/api\/doctors\/[^/]+\/disponibilidad$/) && method === "POST") {
+        const id = path.split("/")[3];
+        const body = await req.json();
+        const { dias, horario, tipoTurno, obraSocial, nota } = body;
+
+        if (!dias?.length || !horario || !tipoTurno) {
+          return new Response(JSON.stringify({ error: "Faltan campos requeridos" }), {
+            status: 400,
+            headers: { ...corsHeaders, "Content-Type": "application/json" },
+          });
+        }
+
+        const newId = `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+        const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000); // 7 días
+
+        const result = await db.query(
+          `INSERT INTO "TurnoDisponibilidad" (id, "doctorId", dias, horario, "tipoTurno", "obraSocial", nota, "expiresAt")
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING *`,
+          [newId, id, dias, horario, tipoTurno, obraSocial || "Todas", nota || null, expiresAt]
+        );
+
+        return new Response(JSON.stringify(result.rows[0]), {
+          status: 201,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+
+      // ─── FIN DOCTORS ──────────────────────────────────────────────────────
 
       // Ruta no encontrada
       return new Response(JSON.stringify({ error: "Ruta no encontrada" }), {
