@@ -973,6 +973,39 @@ const server = Bun.serve({
         }
       }
 
+      // PUT /api/farmacias/:id - Actualizar farmacia (coords, dirección, etc.)
+      const farmaciaUpdateMatch = path.match(/^\/api\/farmacias\/([^/]+)$/);
+      if (farmaciaUpdateMatch && method === "PUT") {
+        const id = farmaciaUpdateMatch[1];
+        const body = await req.json() as { lat?: number; lng?: number; direccion?: string; nombre?: string; telefono?: string };
+        const fields: string[] = [];
+        const values: any[] = [];
+        let idx = 1;
+        if (body.lat !== undefined)      { fields.push(`lat = $${idx++}`);       values.push(body.lat); }
+        if (body.lng !== undefined)      { fields.push(`lng = $${idx++}`);       values.push(body.lng); }
+        if (body.direccion !== undefined){ fields.push(`direccion = $${idx++}`); values.push(body.direccion); }
+        if (body.nombre !== undefined)   { fields.push(`nombre = $${idx++}`);    values.push(body.nombre); }
+        if (body.telefono !== undefined) { fields.push(`telefono = $${idx++}`);  values.push(body.telefono); }
+        if (!fields.length) {
+          return new Response(JSON.stringify({ error: "Sin campos a actualizar" }), {
+            status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" },
+          });
+        }
+        values.push(id);
+        const result = await db.query(
+          `UPDATE "Farmacia" SET ${fields.join(", ")} WHERE id = $${idx} RETURNING *`,
+          values
+        );
+        if (!result.rows.length) {
+          return new Response(JSON.stringify({ error: "Farmacia no encontrada" }), {
+            status: 404, headers: { ...corsHeaders, "Content-Type": "application/json" },
+          });
+        }
+        return new Response(JSON.stringify(result.rows[0]), {
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+
       // ─── FIN FARMACIAS ────────────────────────────────────────────────────
 
       // Ruta no encontrada
