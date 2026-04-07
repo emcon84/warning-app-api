@@ -915,46 +915,52 @@ const server = Bun.serve({
         }
 
         try {
-          const html = await fetch("https://regionnet.com.ar/servicios/farmacias/", {
-            headers: { "User-Agent": "warning-app/1.0" },
-          }).then(r => r.text());
-
-          // Extraer nombres de farmacias de turno hoy del HTML
-          // El patrón es: <a href="...">NOMBRE FARMACIA</a> seguido de fecha de hoy
           const today = new Date();
           const dd = String(today.getDate()).padStart(2, "0");
           const mm = String(today.getMonth() + 1).padStart(2, "0");
           const yyyy = today.getFullYear();
           const dateStr = `${dd}/${mm}/${yyyy}`;
+          const startStr = `${yyyy}-${mm}-${dd}`;
 
-          // Buscar eventos del día — el HTML contiene patrones como "FARMACIA en DD/MM/YYYY"
-          const enPattern = new RegExp(`([A-ZÁÉÍÓÚÑ][A-ZÁÉÍÓÚÑ\\s\\.]+?)\\s+en\\s+${dd}/${mm}/${yyyy}`, "gi");
-          const matches: string[] = [];
-          let match;
-          while ((match = enPattern.exec(html)) !== null) {
-            const nombre = match[1].trim().toUpperCase();
-            if (!matches.includes(nombre)) matches.push(nombre);
-          }
+          // End = mañana
+          const tomorrow = new Date(today.getTime() + 86_400_000);
+          const edd = String(tomorrow.getDate()).padStart(2, "0");
+          const emm = String(tomorrow.getMonth() + 1).padStart(2, "0");
+          const eyyyy = tomorrow.getFullYear();
+          const endStr = `${eyyyy}-${emm}-${edd}`;
 
-          // Buscar también en títulos de eventos del calendario FullCalendar
-          const titlePattern = /"title"\s*:\s*"([^"]+)"/g;
-          const datePattern = new RegExp(`"${yyyy}-${mm}-${dd}"`);
-          if (datePattern.test(html)) {
-            while ((match = titlePattern.exec(html)) !== null) {
-              const nombre = match[1].trim().toUpperCase();
-              if (!matches.includes(nombre)) matches.push(nombre);
-            }
-          }
+          // WordPress Event Organiser AJAX endpoint — no nonce required for public events
+          const ajaxUrl = `https://regionnet.com.ar/wp-admin/admin-ajax.php?action=eventorganiser-fullcal&event_category=reconquista&start=${startStr}&end=${endStr}`;
+          const events: any[] = await fetch(ajaxUrl, {
+            headers: {
+              "User-Agent": "warning-app/1.0",
+              "Referer": "https://regionnet.com.ar/servicios/farmacias/",
+              "X-Requested-With": "XMLHttpRequest",
+            },
+          }).then(r => r.json());
+
+          // Eventos activos ahora: categoría reconquista + clase eo-event-running
+          const nombresDeturno = events
+            .filter((e: any) =>
+              Array.isArray(e.className) &&
+              e.className.includes("eo-event-running") &&
+              e.className.some((c: string) => c.includes("reconquista"))
+            )
+            .map((e: any) => (e.title as string).trim().toUpperCase());
 
           // Cruzar con farmacias en BD
           const farmaciasResult = await db.query('SELECT * FROM "Farmacia" WHERE activo = true');
           const todas = farmaciasResult.rows;
 
-          const deturno = matches.length > 0
-            ? todas.filter(f => matches.some(m => f.nombre.toUpperCase().includes(m) || m.includes(f.nombre.toUpperCase())))
+          const deturno = nombresDeturno.length > 0
+            ? todas.filter(f =>
+                nombresDeturno.some(n =>
+                  f.nombre.toUpperCase().includes(n) || n.includes(f.nombre.toUpperCase())
+                )
+              )
             : [];
 
-          const data = { fecha: dateStr, farmacias: deturno, raw: matches };
+          const data = { fecha: dateStr, farmacias: deturno, raw: nombresDeturno };
           turnoCache = { timestamp: now, data };
 
           return new Response(JSON.stringify(data), {
