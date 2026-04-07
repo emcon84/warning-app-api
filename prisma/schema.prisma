@@ -42,6 +42,7 @@ model Doctor {
   lat            Float
   lng            Float
   obrasSociales  String[]        @default([])
+  iapos          Boolean         @default(false)
   activo         Boolean         @default(true)
   confirmaciones       Confirmacion[]
   turnosDisponibilidad TurnoDisponibilidad[]
@@ -89,6 +90,16 @@ model Farmacia {
   lng       Float
   activo    Boolean  @default(true)
   createdAt DateTime @default(now())
+
+  @@index([nombre])
+}
+
+model IaposProvider {
+  id        String   @id @default(cuid())
+  nombre    String
+  direccion String   @default("")
+  telefono  String   @default("")
+  updatedAt DateTime @updatedAt
 
   @@index([nombre])
 }
