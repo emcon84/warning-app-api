@@ -4,6 +4,9 @@ import { existsSync, mkdirSync, readFileSync } from "fs";
 import webPush from "web-push";
 import { OBRAS_SOCIALES } from "./lib/constants";
 
+// Caché en memoria para el turno de farmacias (1 hora)
+let turnoCache: { timestamp: number; data: any } | null = null;
+
 // Cargar .env manualmente (necesario para PM2)
 try {
   const envPath = join(import.meta.dir, ".env");
@@ -891,6 +894,80 @@ const server = Bun.serve({
       }
 
       // ─── FIN DOCTORS ──────────────────────────────────────────────────────
+
+      // ─── FARMACIAS ────────────────────────────────────────────────────────
+
+      // GET /api/farmacias - Lista todas las farmacias
+      if (path === "/api/farmacias" && method === "GET") {
+        const result = await db.query('SELECT * FROM "Farmacia" WHERE activo = true ORDER BY nombre');
+        return new Response(JSON.stringify(result.rows), {
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+
+      // GET /api/farmacias/turno - Farmacia(s) de turno hoy (scraping regionnet, caché 1h)
+      if (path === "/api/farmacias/turno" && method === "GET") {
+        const now = Date.now();
+        if (turnoCache && now - turnoCache.timestamp < 3600_000) {
+          return new Response(JSON.stringify(turnoCache.data), {
+            headers: { ...corsHeaders, "Content-Type": "application/json" },
+          });
+        }
+
+        try {
+          const html = await fetch("https://regionnet.com.ar/servicios/farmacias/", {
+            headers: { "User-Agent": "warning-app/1.0" },
+          }).then(r => r.text());
+
+          // Extraer nombres de farmacias de turno hoy del HTML
+          // El patrón es: <a href="...">NOMBRE FARMACIA</a> seguido de fecha de hoy
+          const today = new Date();
+          const dd = String(today.getDate()).padStart(2, "0");
+          const mm = String(today.getMonth() + 1).padStart(2, "0");
+          const yyyy = today.getFullYear();
+          const dateStr = `${dd}/${mm}/${yyyy}`;
+
+          // Buscar eventos del día — el HTML contiene patrones como "FARMACIA en DD/MM/YYYY"
+          const enPattern = new RegExp(`([A-ZÁÉÍÓÚÑ][A-ZÁÉÍÓÚÑ\\s\\.]+?)\\s+en\\s+${dd}/${mm}/${yyyy}`, "gi");
+          const matches: string[] = [];
+          let match;
+          while ((match = enPattern.exec(html)) !== null) {
+            const nombre = match[1].trim().toUpperCase();
+            if (!matches.includes(nombre)) matches.push(nombre);
+          }
+
+          // Buscar también en títulos de eventos del calendario FullCalendar
+          const titlePattern = /"title"\s*:\s*"([^"]+)"/g;
+          const datePattern = new RegExp(`"${yyyy}-${mm}-${dd}"`);
+          if (datePattern.test(html)) {
+            while ((match = titlePattern.exec(html)) !== null) {
+              const nombre = match[1].trim().toUpperCase();
+              if (!matches.includes(nombre)) matches.push(nombre);
+            }
+          }
+
+          // Cruzar con farmacias en BD
+          const farmaciasResult = await db.query('SELECT * FROM "Farmacia" WHERE activo = true');
+          const todas = farmaciasResult.rows;
+
+          const deturno = matches.length > 0
+            ? todas.filter(f => matches.some(m => f.nombre.toUpperCase().includes(m) || m.includes(f.nombre.toUpperCase())))
+            : [];
+
+          const data = { fecha: dateStr, farmacias: deturno, raw: matches };
+          turnoCache = { timestamp: now, data };
+
+          return new Response(JSON.stringify(data), {
+            headers: { ...corsHeaders, "Content-Type": "application/json" },
+          });
+        } catch (err) {
+          return new Response(JSON.stringify({ fecha: "", farmacias: [], raw: [], error: "No se pudo obtener el turno" }), {
+            headers: { ...corsHeaders, "Content-Type": "application/json" },
+          });
+        }
+      }
+
+      // ─── FIN FARMACIAS ────────────────────────────────────────────────────
 
       // Ruta no encontrada
       return new Response(JSON.stringify({ error: "Ruta no encontrada" }), {

@@ -80,6 +80,19 @@ model TurnoDisponibilidad {
   @@index([expiresAt])
 }
 
+model Farmacia {
+  id        String   @id @default(cuid())
+  nombre    String
+  direccion String
+  telefono  String?
+  lat       Float
+  lng       Float
+  activo    Boolean  @default(true)
+  createdAt DateTime @default(now())
+
+  @@index([nombre])
+}
+
 model PushSubscription {
   id        String   @id @default(cuid())
   endpoint  String   @unique
