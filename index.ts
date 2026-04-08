@@ -1075,6 +1075,33 @@ const server = Bun.serve({
         }).join("");
       };
 
+      // POST /api/voice/simple - Reporte por voz sin IA (Web Speech API)
+      if (path === "/api/voice/simple" && method === "POST") {
+        const body = await req.json();
+        const { description, lat, lng } = body;
+        if (!description || !lat || !lng) {
+          return new Response(JSON.stringify({ error: "Faltan campos: description, lat, lng" }), {
+            status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" },
+          });
+        }
+        const id = `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+        const now = new Date();
+        const result = await db.query(
+          `INSERT INTO "Report" (id, lat, lng, category, description, barrio, direccion, photo, photos, "isUrgent", "createdAt", "updatedAt") VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12) RETURNING *`,
+          [id, lat, lng, "basura", description.slice(0, 500), "Sin especificar", "Sin especificar", null, [], false, now, now],
+        );
+        const newReport = result.rows[0];
+        try {
+          const subscriptions = await db.query('SELECT endpoint, p256dh, auth FROM "PushSubscription"');
+          for (const sub of subscriptions.rows) {
+            await webPush.sendNotification({ endpoint: sub.endpoint, keys: { p256dh: sub.p256dh, auth: sub.auth } }, JSON.stringify({ title: "Nuevo reporte por voz", body: description.slice(0, 80), url: "/" })).catch(() => {});
+          }
+        } catch {}
+        return new Response(JSON.stringify({ report: newReport }), {
+          status: 201, headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+
       // POST /api/voice/report - Crear reporte desde voz
       if (path === "/api/voice/report" && method === "POST") {
         const contentType = req.headers.get("content-type") || "";
