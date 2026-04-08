@@ -1035,16 +1035,33 @@ const server = Bun.serve({
         return dp[m][n];
       };
 
-      // Corregir palabras del transcript que se parezcan a calles conocidas
+      // Palabras clave de problemas para corrección fonética
+      const PROBLEM_CORRECTIONS: Record<string, string> = {
+        "vache": "bache", "bache": "bache", "pache": "bache", "mache": "bache",
+        "vacha": "bache", "baches": "baches", "vaches": "baches",
+        "alumbrao": "alumbrado", "alumbramiento": "alumbrado",
+        "basura": "basura", "vasura": "basura",
+        "pastizal": "pastizal", "pasto": "pastizal", "yuyos": "pastizal",
+        "semaforo": "semáforo", "señaforo": "semáforo",
+        "graffiti": "graffiti", "grafiti": "graffiti", "pintada": "graffiti",
+        "escombro": "escombro", "cascote": "escombro",
+      };
+
+      // Corregir palabras del transcript — calles conocidas + problemas comunes
       const correctStreetNames = (text: string): string => {
         const words = text.split(/\b/);
         return words.map(word => {
           if (word.length < 4) return word;
           const wordLower = word.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+
+          // Corrección de problemas comunes primero
+          if (PROBLEM_CORRECTIONS[wordLower]) return PROBLEM_CORRECTIONS[wordLower];
+
+          // Corrección de calles por Levenshtein
           let bestMatch = "";
           let bestDist = Infinity;
           for (const calle of CALLES_RECONQUISTA) {
-            if (calle.includes(" ")) continue; // calles compuestas las manejamos aparte
+            if (calle.includes(" ")) continue;
             const calleLower = calle.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
             if (Math.abs(wordLower.length - calleLower.length) > 4) continue;
             const dist = levenshtein(wordLower, calleLower);
