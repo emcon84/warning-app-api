@@ -1033,10 +1033,14 @@ const server = Bun.serve({
 
           // Enviar a Groq Whisper para transcripción
           const whisperForm = new FormData();
+          // Prompt con calles y vocabulario local de Reconquista para guiar a Whisper
+          const reconquistaPrompt = `Reporte ciudadano en Reconquista, Santa Fe, Argentina. Calles: Habegger, Iriondo, Pellegrini, Rivadavia, Avellaneda, Belgrano, San Martín, Mitre, Roca, Colón, Sarmiento, Tucumán, Córdoba, Mendoza, Entre Ríos, Corrientes, Santa Fe, La Rioja, San Juan, Moreno, Iturraspe, Ituzaingó, Almafuerte, Chacabuco, Freyre, Ludueña, Bolívar, Alvear, España, Italia, Francia, Independencia, Libertad, 25 de Mayo, 9 de Julio, Bulevar Lovato, Bulevar Constituyentes, Ruta Nacional 11, Patricio Diez, Habegger, Amenabar. Problemas: bache, basura, alumbrado, semáforo, pastizal, pérdida de agua, escombros, árbol caído.`;
+
           whisperForm.append("file", audioFile, "audio.webm");
           whisperForm.append("model", "whisper-large-v3");
           whisperForm.append("language", "es");
           whisperForm.append("response_format", "text");
+          whisperForm.append("prompt", reconquistaPrompt);
 
           const whisperRes = await fetch("https://api.groq.com/openai/v1/audio/transcriptions", {
             method: "POST",
