@@ -1152,25 +1152,56 @@ Devolvé solo el JSON:`;
             const bbox = "-59.85,-29.30,-59.45,-28.95";
             const sepRegex = /\s+(?:y|e|-|\/|esq\.?|esquina|entre|casi)\s+/i;
             const parts = direccion.split(sepRegex).map((s: string) => s.trim()).filter(Boolean);
-            const queries = [direccion];
-            if (parts.length >= 2) {
-              queries.push(`${parts[0]} & ${parts[1]}`);
-              queries.push(parts[0]);
-            }
+            const isIntersection = parts.length >= 2;
 
-            for (const q of queries) {
+            const doGeocode = async (q: string) => {
               const encoded = encodeURIComponent(`${q}, Reconquista, Santa Fe, Argentina`);
-              const geoRes = await fetch(
+              const res = await fetch(
                 `https://nominatim.openstreetmap.org/search?q=${encoded}&format=json&limit=1&countrycodes=ar&viewbox=${bbox}&bounded=1`,
                 { headers: { "User-Agent": "warning-app/1.0" } }
               );
-              const geoData = await geoRes.json();
-              if (geoData.length > 0) {
-                reportLat = parseFloat(geoData[0].lat);
-                reportLng = parseFloat(geoData[0].lon);
-                break;
-              }
+              const data = await res.json();
+              return data.length > 0 ? { lat: parseFloat(data[0].lat), lng: parseFloat(data[0].lon) } : null;
+            };
+
+            // 1. Intentar la dirección completa
+            let found = await doGeocode(direccion);
+
+            // 2. Para intersecciones: intentar formato Nominatim con &
+            if (!found && isIntersection) {
               await new Promise(r => setTimeout(r, 300));
+              found = await doGeocode(`${parts[0]} & ${parts[1]}`);
+            }
+
+            // 3. Si sigue sin encontrar: geocodificar cada calle por separado y promediar
+            if (!found && isIntersection) {
+              await new Promise(r => setTimeout(r, 300));
+              const coord1 = await doGeocode(parts[0]);
+              await new Promise(r => setTimeout(r, 300));
+              const coord2 = await doGeocode(parts[1]);
+
+              if (coord1 && coord2) {
+                // Promedio de ambas calles ≈ intersección aproximada
+                found = {
+                  lat: (coord1.lat + coord2.lat) / 2,
+                  lng: (coord1.lng + coord2.lng) / 2,
+                };
+              } else if (coord1) {
+                found = coord1;
+              } else if (coord2) {
+                found = coord2;
+              }
+            }
+
+            // 4. Fallback: solo la primera parte de la dirección
+            if (!found) {
+              await new Promise(r => setTimeout(r, 300));
+              found = await doGeocode(parts[0] || direccion);
+            }
+
+            if (found) {
+              reportLat = found.lat;
+              reportLng = found.lng;
             }
           } catch {
             // Si falla el geocoding, usamos las coords del usuario
