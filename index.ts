@@ -1012,10 +1012,59 @@ const server = Bun.serve({
 
       // POST /api/voice/report - Crear reporte desde voz
       if (path === "/api/voice/report" && method === "POST") {
-        const { transcript, lat, lng } = await req.json();
+        const contentType = req.headers.get("content-type") || "";
+        let transcript: string;
+        let lat: number;
+        let lng: number;
+
+        if (contentType.includes("multipart/form-data")) {
+          // Audio desde MediaRecorder → transcribir con Groq Whisper
+          const formData = await req.formData();
+          const audioFile = formData.get("audio") as File;
+          lat = parseFloat(formData.get("lat") as string);
+          lng = parseFloat(formData.get("lng") as string);
+
+          if (!audioFile || !lat || !lng) {
+            return new Response(JSON.stringify({ error: "Faltan campos: audio, lat, lng" }), {
+              status: 400,
+              headers: { ...corsHeaders, "Content-Type": "application/json" },
+            });
+          }
+
+          // Enviar a Groq Whisper para transcripción
+          const whisperForm = new FormData();
+          whisperForm.append("file", audioFile, "audio.webm");
+          whisperForm.append("model", "whisper-large-v3");
+          whisperForm.append("language", "es");
+          whisperForm.append("response_format", "text");
+
+          const whisperRes = await fetch("https://api.groq.com/openai/v1/audio/transcriptions", {
+            method: "POST",
+            headers: { "Authorization": `Bearer ${process.env.GROQ_API_KEY}` },
+            body: whisperForm,
+          });
+
+          if (!whisperRes.ok) {
+            const err = await whisperRes.text();
+            console.error("Whisper error:", err);
+            return new Response(JSON.stringify({ error: "Error al transcribir el audio" }), {
+              status: 500,
+              headers: { ...corsHeaders, "Content-Type": "application/json" },
+            });
+          }
+
+          transcript = (await whisperRes.text()).trim();
+          console.log("Whisper transcript:", transcript);
+        } else {
+          // Fallback JSON (compatibilidad)
+          const body = await req.json();
+          transcript = body.transcript;
+          lat = body.lat;
+          lng = body.lng;
+        }
 
         if (!transcript || !lat || !lng) {
-          return new Response(JSON.stringify({ error: "Faltan campos: transcript, lat, lng" }), {
+          return new Response(JSON.stringify({ error: "Faltan campos requeridos" }), {
             status: 400,
             headers: { ...corsHeaders, "Content-Type": "application/json" },
           });
