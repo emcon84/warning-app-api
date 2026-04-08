@@ -1031,13 +1031,25 @@ const server = Bun.serve({
         ];
 
         const prompt = `Sos un extractor de datos para una app de reportes ciudadanos de Reconquista, Santa Fe, Argentina.
-Extraé los campos del siguiente mensaje de voz y devolvé ÚNICAMENTE un JSON válido, sin texto adicional, sin markdown, sin explicaciones.
+Extraé los campos del mensaje de voz y devolvé ÚNICAMENTE un JSON válido, sin texto adicional, sin markdown, sin explicaciones.
 
-Campos a extraer:
-- "categoria": uno de estos valores exactos: ${CATEGORIAS.join(", ")}
-- "descripcion": descripción breve del problema (máx 200 caracteres)
-- "barrio": nombre del barrio mencionado, o "Sin especificar" si no se menciona
-- "direccion": calle y número o intersección mencionada, o "Sin especificar" si no se menciona
+DEFINICIONES IMPORTANTES:
+- "barrio": es el NOMBRE DE UN BARRIO (ej: "Centro", "Barrio Norte", "Barrio San Martín"). NUNCA es un nombre de calle. Si no se menciona un barrio explícitamente, usá "Sin especificar".
+- "direccion": es la CALLE y el NÚMERO (ej: "Iriondo 1200", "San Martín 450", "Belgrano y Roca"). Incluí el nombre completo de la calle y el número juntos en este campo.
+- "descripcion": describe el problema brevemente.
+- "categoria": clasificá el tipo de problema.
+
+EJEMPLOS:
+Mensaje: "hay un bache en calle Iriondo al 1200"
+JSON: {"categoria":"baches","descripcion":"bache en calle Iriondo","barrio":"Sin especificar","direccion":"Iriondo 1200"}
+
+Mensaje: "falta la luz en Belgrano 500, barrio centro"
+JSON: {"categoria":"alumbrado","descripcion":"falta alumbrado público","barrio":"Centro","direccion":"Belgrano 500"}
+
+Mensaje: "basura sin recolectar en San Martín y Rivadavia, barrio norte"
+JSON: {"categoria":"basura","descripcion":"basura sin recolectar","barrio":"Barrio Norte","direccion":"San Martín y Rivadavia"}
+
+Categorías válidas: ${CATEGORIAS.join(", ")}
 
 Mensaje de voz: "${transcript.replace(/"/g, "'")}"
 
