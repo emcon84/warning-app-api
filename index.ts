@@ -1099,31 +1099,35 @@ Mensaje de voz: "${transcript.replace(/"/g, "'")}"
 
 Devolvé solo el JSON:`;
 
-        // Llamar a Ollama
-        const ollamaRes = await fetch("http://localhost:11434/api/generate", {
+        // Llamar a Groq
+        const groqRes = await fetch("https://api.groq.com/openai/v1/chat/completions", {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
+          headers: {
+            "Content-Type": "application/json",
+            "Authorization": `Bearer ${process.env.GROQ_API_KEY}`,
+          },
           body: JSON.stringify({
-            model: "llama3.2:3b",
-            prompt,
-            stream: false,
-            options: { temperature: 0.1, num_predict: 200 },
+            model: "llama-3.1-8b-instant",
+            messages: [{ role: "user", content: prompt }],
+            temperature: 0.1,
+            max_tokens: 200,
           }),
         });
 
-        if (!ollamaRes.ok) {
+        if (!groqRes.ok) {
+          const errBody = await groqRes.text();
+          console.error("Groq error:", errBody);
           return new Response(JSON.stringify({ error: "Error al procesar el mensaje de voz" }), {
             status: 500,
             headers: { ...corsHeaders, "Content-Type": "application/json" },
           });
         }
 
-        const ollamaData = await ollamaRes.json();
+        const groqData = await groqRes.json();
         let extracted: any;
 
         try {
-          // Limpiar respuesta por si hay markdown o texto extra
-          const raw = ollamaData.response.trim();
+          const raw = groqData.choices[0].message.content.trim();
           const jsonMatch = raw.match(/\{[\s\S]*\}/);
           if (!jsonMatch) throw new Error("No JSON found");
           extracted = JSON.parse(jsonMatch[0]);
