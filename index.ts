@@ -1144,6 +1144,39 @@ Devolvé solo el JSON:`;
         const barrio = extracted.barrio || "Sin especificar";
         const direccion = extracted.direccion || "Sin especificar";
 
+        // Geocodificar la dirección extraída para ubicar el pin correctamente
+        let reportLat = lat;
+        let reportLng = lng;
+        if (direccion !== "Sin especificar") {
+          try {
+            const bbox = "-59.85,-29.30,-59.45,-28.95";
+            const sepRegex = /\s+(?:y|e|-|\/|esq\.?|esquina|entre|casi)\s+/i;
+            const parts = direccion.split(sepRegex).map((s: string) => s.trim()).filter(Boolean);
+            const queries = [direccion];
+            if (parts.length >= 2) {
+              queries.push(`${parts[0]} & ${parts[1]}`);
+              queries.push(parts[0]);
+            }
+
+            for (const q of queries) {
+              const encoded = encodeURIComponent(`${q}, Reconquista, Santa Fe, Argentina`);
+              const geoRes = await fetch(
+                `https://nominatim.openstreetmap.org/search?q=${encoded}&format=json&limit=1&countrycodes=ar&viewbox=${bbox}&bounded=1`,
+                { headers: { "User-Agent": "warning-app/1.0" } }
+              );
+              const geoData = await geoRes.json();
+              if (geoData.length > 0) {
+                reportLat = parseFloat(geoData[0].lat);
+                reportLng = parseFloat(geoData[0].lon);
+                break;
+              }
+              await new Promise(r => setTimeout(r, 300));
+            }
+          } catch {
+            // Si falla el geocoding, usamos las coords del usuario
+          }
+        }
+
         // Crear el reporte directamente
         const id = `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
         const now = new Date();
@@ -1152,7 +1185,7 @@ Devolvé solo el JSON:`;
           `INSERT INTO "Report" (id, lat, lng, category, description, barrio, direccion, photo, photos, "isUrgent", "createdAt", "updatedAt")
            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
            RETURNING *`,
-          [id, lat, lng, categoria, descripcion, barrio, direccion, null, [], false, now, now],
+          [id, reportLat, reportLng, categoria, descripcion, barrio, direccion, null, [], false, now, now],
         );
 
         const newReport = result.rows[0];
