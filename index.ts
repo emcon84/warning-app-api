@@ -1038,6 +1038,7 @@ DEFINICIONES IMPORTANTES:
 - "direccion": es la CALLE completa con número o intersección (ej: "Iriondo 1200", "San Martín y Roca", "Ruta 11 esquina Rivadavia"). Siempre incluí el nombre de la calle. "al 800" significa número 800, escribilo como "NombreCalle 800".
 - "descripcion": describe el problema en pocas palabras, tal como lo dijo el usuario.
 - "categoria": el tipo de problema más cercano de la lista.
+- "enviar_servicios": true si el usuario menciona avisar/mandar/enviar a servicios públicos, municipalidad, municipio, intendencia o similar. false en cualquier otro caso.
 
 REGLAS ESPECIALES:
 - "esquina", "y", "entre", "casi", "e" entre dos calles = intersección → va en "direccion"
@@ -1048,7 +1049,16 @@ REGLAS ESPECIALES:
 
 EJEMPLOS:
 Mensaje: "hay un bache en calle Iriondo al 1200"
-JSON: {"categoria":"baches","descripcion":"bache en calle Iriondo","barrio":"Sin especificar","direccion":"Iriondo 1200"}
+JSON: {"categoria":"baches","descripcion":"bache en calle Iriondo","barrio":"Sin especificar","direccion":"Iriondo 1200","enviar_servicios":false}
+
+Mensaje: "hay un bache en Pellegrini al 500, avisá a servicios públicos"
+JSON: {"categoria":"baches","descripcion":"bache en Pellegrini","barrio":"Sin especificar","direccion":"Pellegrini 500","enviar_servicios":true}
+
+Mensaje: "basura sin recolectar en Mitre 300, mandá a la municipalidad"
+JSON: {"categoria":"basura","descripcion":"basura sin recolectar","barrio":"Sin especificar","direccion":"Mitre 300","enviar_servicios":true}
+
+Mensaje: "falta el alumbrado en Belgrano y Salta, avisar al municipio"
+JSON: {"categoria":"alumbrado","descripcion":"falta alumbrado público","barrio":"Sin especificar","direccion":"Belgrano y Salta","enviar_servicios":true}
 
 Mensaje: "choque en calle San Martín y Roca, andar con cuidado"
 JSON: {"categoria":"transporte","descripcion":"accidente de tránsito, circular con precaución","barrio":"Sin especificar","direccion":"San Martín y Roca"}
