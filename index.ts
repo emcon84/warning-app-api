@@ -1078,63 +1078,76 @@ const server = Bun.serve({
             });
           }
 
-          // Convertir audio a base64
-          const audioBuffer = await audioFile.arrayBuffer();
-          const audioBase64 = Buffer.from(audioBuffer).toString("base64");
+          // Paso 1: Groq Whisper — transcripción (prompt mínimo para no superar límite de 896 chars)
+          const whisperForm = new FormData();
+          whisperForm.append("file", new Blob([await audioFile.arrayBuffer()], { type: "audio/webm" }), "audio.webm");
+          whisperForm.append("model", "whisper-large-v3");
+          whisperForm.append("language", "es");
+          whisperForm.append("prompt", "Reporte ciudadano en Reconquista, Santa Fe, Argentina. Calles: Habegger, Iturraspe, Ituzaingó, Almafuerte, Ludueña, Amenabar, Bulevar Lovato, Patricio Diez, Ruta Nacional 11.");
 
-          const CATEGORIAS_LIST = "basura, alumbrado, baches, pastizales, robo, personas_sospechosas, fugas_agua, drenaje, banquetas, semaforos, limpieza, graffiti, escombros, arboles, vandalismo, vehiculos_abandonados, iluminacion, animales_callejeros, plagas, senalizacion, estacionamiento, transporte";
-
-          const geminiPrompt = `Sos un asistente para una app de reportes ciudadanos de Reconquista, Santa Fe, Argentina.
-
-Escuchá este audio y extraé la información del reporte. Devolvé ÚNICAMENTE un JSON válido, sin texto adicional ni markdown.
-
-Calles de Reconquista: Habegger, Iriondo, Pellegrini, Rivadavia, Avellaneda, Belgrano, San Martín, Mitre, Roca, Colón, Sarmiento, Tucumán, Córdoba, Mendoza, Entre Ríos, Corrientes, La Rioja, San Juan, Moreno, Iturraspe, Ituzaingó, Almafuerte, Chacabuco, Freyre, Ludueña, Bolívar, Alvear, Independencia, 25 de Mayo, 9 de Julio, Bulevar Lovato, Ruta Nacional 11, Patricio Diez, Amenabar, Calle 41, Calle 43, Calle 44, Calle 45, Calle 46, Calle 47, Calle 48, Calle 50, Calle 52, Calle 54, Calle 56, Calle 58, Calle 60, Calle 62.
-
-Campos:
-- "categoria": uno de: ${CATEGORIAS_LIST}
-- "descripcion": descripción breve del problema
-- "barrio": nombre del barrio mencionado, o "Sin especificar". NUNCA es nombre de calle.
-- "direccion": calle + número o intersección (ej: "Habegger 500", "Mitre y Roca"). Si dice "ruta 11" escribí "Ruta Nacional 11".
-- "enviar_servicios": true si menciona avisar a municipio/servicios públicos, false si no.
-
-Devolvé solo el JSON:`;
-
-          const geminiBody = JSON.stringify({
-            contents: [{
-              parts: [
-                { inline_data: { mime_type: "audio/webm", data: audioBase64 } },
-                { text: geminiPrompt },
-              ],
-            }],
-            generationConfig: { temperature: 0.1, maxOutputTokens: 200 },
+          const whisperRes = await fetch("https://api.groq.com/openai/v1/audio/transcriptions", {
+            method: "POST",
+            headers: { Authorization: `Bearer ${process.env.GROQ_API_KEY}` },
+            body: whisperForm,
           });
 
-          const callGemini = () => fetch(
-            `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${process.env.GEMINI_API_KEY}`,
-            { method: "POST", headers: { "Content-Type": "application/json" }, body: geminiBody }
-          );
-
-          let geminiRes = await callGemini();
-
-          // Si es rate limit, esperar 15s y reintentar una vez
-          if (geminiRes.status === 429) {
-            console.log("Gemini rate limit, reintentando en 15s...");
-            await new Promise((r) => setTimeout(r, 15000));
-            geminiRes = await callGemini();
-          }
-
-          if (!geminiRes.ok) {
-            const err = await geminiRes.text();
-            console.error("Gemini error:", err);
-            return new Response(JSON.stringify({ error: "Servicio temporalmente no disponible. Intentá en unos segundos." }), {
-              status: 503,
+          if (!whisperRes.ok) {
+            const err = await whisperRes.text();
+            console.error("Whisper error:", err);
+            return new Response(JSON.stringify({ error: "Error al transcribir el audio. Intentá de nuevo." }), {
+              status: 500,
               headers: { ...corsHeaders, "Content-Type": "application/json" },
             });
           }
 
-          const geminiData = await geminiRes.json();
-          const rawText = geminiData.candidates?.[0]?.content?.parts?.[0]?.text?.trim() || "";
-          console.log("Gemini response:", rawText);
+          const whisperData = await whisperRes.json();
+          const rawTranscript = whisperData.text?.trim() || "";
+          const correctedTranscript = correctStreetNames(rawTranscript);
+          console.log("Whisper raw:", rawTranscript);
+          console.log("Whisper corrected:", correctedTranscript);
+
+          // Paso 2: Groq LLaMA — extraer JSON estructurado
+          const nlpPrompt = `Sos un asistente para reportes ciudadanos de Reconquista, Santa Fe, Argentina.
+Analizá este texto y devolvé SOLO un JSON válido, sin texto adicional ni markdown.
+
+Calles de Reconquista: Habegger, Iriondo, Pellegrini, Rivadavia, Avellaneda, Belgrano, San Martín, Mitre, Roca, Colón, Sarmiento, Tucumán, Córdoba, Mendoza, Entre Ríos, Corrientes, La Rioja, San Juan, Moreno, Iturraspe, Ituzaingó, Almafuerte, Chacabuco, Freyre, Ludueña, Bolívar, Alvear, Independencia, 25 de Mayo, 9 de Julio, Bulevar Lovato, Ruta Nacional 11, Patricio Diez, Amenabar, Calle 41, Calle 43, Calle 44, Calle 45, Calle 46, Calle 47, Calle 48, Calle 50, Calle 52, Calle 54, Calle 56, Calle 58, Calle 60, Calle 62.
+
+Categorías: basura, alumbrado, baches, pastizales, robo, personas_sospechosas, fugas_agua, drenaje, banquetas, semaforos, limpieza, graffiti, escombros, arboles, vandalismo, vehiculos_abandonados, iluminacion, animales_callejeros, plagas, senalizacion, estacionamiento, transporte.
+
+Campos del JSON:
+- "categoria": la categoría más apropiada de la lista
+- "descripcion": descripción breve del problema (max 100 chars)
+- "barrio": barrio mencionado o "Sin especificar" (NUNCA es nombre de calle)
+- "direccion": calle + número o "Calle1 y Calle2". Si dice "ruta 11" → "Ruta Nacional 11". Si no hay dirección → "Sin especificar"
+- "enviar_servicios": true si menciona avisar al municipio/servicios públicos, false si no
+
+Texto a analizar: "${correctedTranscript}"
+
+JSON:`;
+
+          const llmRes = await fetch("https://api.groq.com/openai/v1/chat/completions", {
+            method: "POST",
+            headers: { Authorization: `Bearer ${process.env.GROQ_API_KEY}`, "Content-Type": "application/json" },
+            body: JSON.stringify({
+              model: "llama-3.1-8b-instant",
+              messages: [{ role: "user", content: nlpPrompt }],
+              temperature: 0.1,
+              max_tokens: 200,
+            }),
+          });
+
+          if (!llmRes.ok) {
+            const err = await llmRes.text();
+            console.error("LLM error:", err);
+            return new Response(JSON.stringify({ error: "No se pudo interpretar el audio. Intentá de nuevo." }), {
+              status: 500,
+              headers: { ...corsHeaders, "Content-Type": "application/json" },
+            });
+          }
+
+          const llmData = await llmRes.json();
+          const rawText = llmData.choices?.[0]?.message?.content?.trim() || "";
+          console.log("LLM response:", rawText);
 
           let extracted: any;
           try {
