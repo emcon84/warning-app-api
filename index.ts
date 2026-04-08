@@ -1008,6 +1008,114 @@ const server = Bun.serve({
 
       // ─── FIN FARMACIAS ────────────────────────────────────────────────────
 
+      // ─── VOZ ──────────────────────────────────────────────────────────────
+
+      // POST /api/voice/report - Crear reporte desde voz
+      if (path === "/api/voice/report" && method === "POST") {
+        const { transcript, lat, lng } = await req.json();
+
+        if (!transcript || !lat || !lng) {
+          return new Response(JSON.stringify({ error: "Faltan campos: transcript, lat, lng" }), {
+            status: 400,
+            headers: { ...corsHeaders, "Content-Type": "application/json" },
+          });
+        }
+
+        const CATEGORIAS = [
+          "basura", "alumbrado", "baches", "pastizales", "robo",
+          "personas_sospechosas", "fugas_agua", "drenaje", "banquetas",
+          "semaforos", "limpieza", "graffiti", "escombros", "arboles",
+          "vandalismo", "vehiculos_abandonados", "iluminacion",
+          "animales_callejeros", "plagas", "senalizacion",
+          "estacionamiento", "transporte",
+        ];
+
+        const prompt = `Sos un extractor de datos para una app de reportes ciudadanos de Reconquista, Santa Fe, Argentina.
+Extraé los campos del siguiente mensaje de voz y devolvé ÚNICAMENTE un JSON válido, sin texto adicional, sin markdown, sin explicaciones.
+
+Campos a extraer:
+- "categoria": uno de estos valores exactos: ${CATEGORIAS.join(", ")}
+- "descripcion": descripción breve del problema (máx 200 caracteres)
+- "barrio": nombre del barrio mencionado, o "Sin especificar" si no se menciona
+- "direccion": calle y número o intersección mencionada, o "Sin especificar" si no se menciona
+
+Mensaje de voz: "${transcript.replace(/"/g, "'")}"
+
+Devolvé solo el JSON:`;
+
+        // Llamar a Ollama
+        const ollamaRes = await fetch("http://localhost:11434/api/generate", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            model: "llama3.1:8b",
+            prompt,
+            stream: false,
+            options: { temperature: 0.1, num_predict: 200 },
+          }),
+        });
+
+        if (!ollamaRes.ok) {
+          return new Response(JSON.stringify({ error: "Error al procesar el mensaje de voz" }), {
+            status: 500,
+            headers: { ...corsHeaders, "Content-Type": "application/json" },
+          });
+        }
+
+        const ollamaData = await ollamaRes.json();
+        let extracted: any;
+
+        try {
+          // Limpiar respuesta por si hay markdown o texto extra
+          const raw = ollamaData.response.trim();
+          const jsonMatch = raw.match(/\{[\s\S]*\}/);
+          if (!jsonMatch) throw new Error("No JSON found");
+          extracted = JSON.parse(jsonMatch[0]);
+        } catch {
+          return new Response(JSON.stringify({ error: "No se pudo interpretar el mensaje. Intentá de nuevo.", transcript }), {
+            status: 422,
+            headers: { ...corsHeaders, "Content-Type": "application/json" },
+          });
+        }
+
+        // Validar categoría
+        const categoria = CATEGORIAS.includes(extracted.categoria) ? extracted.categoria : "basura";
+        const descripcion = (extracted.descripcion || transcript).slice(0, 500);
+        const barrio = extracted.barrio || "Sin especificar";
+        const direccion = extracted.direccion || "Sin especificar";
+
+        // Crear el reporte directamente
+        const id = `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+        const now = new Date();
+
+        const result = await db.query(
+          `INSERT INTO "Report" (id, lat, lng, category, description, barrio, direccion, photo, photos, "isUrgent", "createdAt", "updatedAt")
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+           RETURNING *`,
+          [id, lat, lng, categoria, descripcion, barrio, direccion, null, [], false, now, now],
+        );
+
+        const newReport = result.rows[0];
+
+        // Notificaciones push
+        try {
+          const subscriptions = await db.query('SELECT endpoint, p256dh, auth FROM "PushSubscription"');
+          for (const sub of subscriptions.rows) {
+            await webPush.sendNotification(
+              { endpoint: sub.endpoint, keys: { p256dh: sub.p256dh, auth: sub.auth } },
+              JSON.stringify({ title: `Reporte por voz: ${categoria}`, body: descripcion, url: "/" }),
+            ).catch(() => {});
+          }
+        } catch {}
+
+        return new Response(JSON.stringify({ report: newReport, extracted }), {
+          status: 201,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+
+      // ─── FIN VOZ ──────────────────────────────────────────────────────────
+
       // Ruta no encontrada
       return new Response(JSON.stringify({ error: "Ruta no encontrada" }), {
         status: 404,
