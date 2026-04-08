@@ -1158,7 +1158,6 @@ Devolvé solo el JSON:`;
 
             // Overpass API: busca el nodo exacto donde dos calles se cruzan (bbox de Reconquista)
             const findIntersection = async (street1: string, street2: string) => {
-              // bbox: sur,oeste,norte,este
               const query = `[out:json][timeout:15];
 way["highway"]["name"~"${normalize(street1)}",i](-29.30,-59.85,-28.95,-59.45)->.a;
 way["highway"]["name"~"${normalize(street2)}",i](-29.30,-59.85,-28.95,-59.45)->.b;
@@ -1166,8 +1165,8 @@ node(w.a)(w.b);
 out 1;`;
               const res = await fetch("https://overpass-api.de/api/interpreter", {
                 method: "POST",
-                body: query,
-                headers: { "Content-Type": "text/plain" },
+                body: `data=${encodeURIComponent(query)}`,
+                headers: { "Content-Type": "application/x-www-form-urlencoded" },
               });
               const data = await res.json();
               if (data.elements?.length > 0) {
