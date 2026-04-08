@@ -1048,7 +1048,7 @@ Devolvé solo el JSON:`;
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
-            model: "llama3.1:8b",
+            model: "llama3.2:3b",
             prompt,
             stream: false,
             options: { temperature: 0.1, num_predict: 200 },
