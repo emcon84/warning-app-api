@@ -1066,7 +1066,6 @@ const server = Bun.serve({
         let lng: number;
 
         if (contentType.includes("multipart/form-data")) {
-          // Audio desde MediaRecorder → transcribir con Groq Whisper
           const formData = await req.formData();
           const audioFile = formData.get("audio") as File;
           lat = parseFloat(formData.get("lat") as string);
@@ -1079,38 +1078,130 @@ const server = Bun.serve({
             });
           }
 
-          // Enviar a Groq Whisper para transcripción
-          const whisperForm = new FormData();
-          // Prompt con calles y vocabulario local de Reconquista para guiar a Whisper
-          const reconquistaPrompt = `Reconquista, Santa Fe. Calles: Habegger, Iriondo, Pellegrini, Rivadavia, Avellaneda, Belgrano, San Martín, Mitre, Roca, Colón, Sarmiento, Tucumán, Córdoba, Mendoza, Entre Ríos, Corrientes, La Rioja, San Juan, Moreno, Iturraspe, Ituzaingó, Almafuerte, Chacabuco, Freyre, Ludueña, Bolívar, Alvear, Independencia, 25 de Mayo, 9 de Julio, Bulevar Lovato, Ruta Nacional 11, Patricio Diez, Amenabar, Calle 41, Calle 43, Calle 44, Calle 45, Calle 46, Calle 47, Calle 48, Calle 50, Calle 52, Calle 54, Calle 56, Calle 58, Calle 60, Calle 62. Problemas: bache, basura, alumbrado, semáforo, pastizal, fuga de agua, alcantarillado, vereda, limpieza, graffiti, escombros, árbol caído, vandalismo, vehículo abandonado, animales callejeros, plagas, señalización, choque.`;
+          // Convertir audio a base64
+          const audioBuffer = await audioFile.arrayBuffer();
+          const audioBase64 = Buffer.from(audioBuffer).toString("base64");
 
-          whisperForm.append("file", audioFile, "audio.webm");
-          whisperForm.append("model", "whisper-large-v3");
-          whisperForm.append("language", "es");
-          whisperForm.append("response_format", "text");
-          whisperForm.append("prompt", reconquistaPrompt);
+          const CATEGORIAS_LIST = "basura, alumbrado, baches, pastizales, robo, personas_sospechosas, fugas_agua, drenaje, banquetas, semaforos, limpieza, graffiti, escombros, arboles, vandalismo, vehiculos_abandonados, iluminacion, animales_callejeros, plagas, senalizacion, estacionamiento, transporte";
 
-          const whisperRes = await fetch("https://api.groq.com/openai/v1/audio/transcriptions", {
-            method: "POST",
-            headers: { "Authorization": `Bearer ${process.env.GROQ_API_KEY}` },
-            body: whisperForm,
-          });
+          const geminiPrompt = `Sos un asistente para una app de reportes ciudadanos de Reconquista, Santa Fe, Argentina.
 
-          if (!whisperRes.ok) {
-            const err = await whisperRes.text();
-            console.error("Whisper error:", err);
-            return new Response(JSON.stringify({ error: "Error al transcribir el audio" }), {
+Escuchá este audio y extraé la información del reporte. Devolvé ÚNICAMENTE un JSON válido, sin texto adicional ni markdown.
+
+Calles de Reconquista: Habegger, Iriondo, Pellegrini, Rivadavia, Avellaneda, Belgrano, San Martín, Mitre, Roca, Colón, Sarmiento, Tucumán, Córdoba, Mendoza, Entre Ríos, Corrientes, La Rioja, San Juan, Moreno, Iturraspe, Ituzaingó, Almafuerte, Chacabuco, Freyre, Ludueña, Bolívar, Alvear, Independencia, 25 de Mayo, 9 de Julio, Bulevar Lovato, Ruta Nacional 11, Patricio Diez, Amenabar, Calle 41, Calle 43, Calle 44, Calle 45, Calle 46, Calle 47, Calle 48, Calle 50, Calle 52, Calle 54, Calle 56, Calle 58, Calle 60, Calle 62.
+
+Campos:
+- "categoria": uno de: ${CATEGORIAS_LIST}
+- "descripcion": descripción breve del problema
+- "barrio": nombre del barrio mencionado, o "Sin especificar". NUNCA es nombre de calle.
+- "direccion": calle + número o intersección (ej: "Habegger 500", "Mitre y Roca"). Si dice "ruta 11" escribí "Ruta Nacional 11".
+- "enviar_servicios": true si menciona avisar a municipio/servicios públicos, false si no.
+
+Devolvé solo el JSON:`;
+
+          const geminiRes = await fetch(
+            `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${process.env.GEMINI_API_KEY}`,
+            {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                contents: [{
+                  parts: [
+                    { inline_data: { mime_type: "audio/webm", data: audioBase64 } },
+                    { text: geminiPrompt },
+                  ],
+                }],
+                generationConfig: { temperature: 0.1, maxOutputTokens: 200 },
+              }),
+            }
+          );
+
+          if (!geminiRes.ok) {
+            const err = await geminiRes.text();
+            console.error("Gemini error:", err);
+            return new Response(JSON.stringify({ error: "Error al procesar el audio" }), {
               status: 500,
               headers: { ...corsHeaders, "Content-Type": "application/json" },
             });
           }
 
-          const rawTranscript = (await whisperRes.text()).trim();
-          transcript = correctStreetNames(rawTranscript);
-          console.log("Whisper raw:", rawTranscript);
-          console.log("Whisper corrected:", transcript);
+          const geminiData = await geminiRes.json();
+          const rawText = geminiData.candidates?.[0]?.content?.parts?.[0]?.text?.trim() || "";
+          console.log("Gemini response:", rawText);
+
+          let extracted: any;
+          try {
+            const jsonMatch = rawText.match(/\{[\s\S]*\}/);
+            if (!jsonMatch) throw new Error("No JSON");
+            extracted = JSON.parse(jsonMatch[0]);
+          } catch {
+            return new Response(JSON.stringify({ error: "No se pudo interpretar el audio. Intentá de nuevo." }), {
+              status: 422,
+              headers: { ...corsHeaders, "Content-Type": "application/json" },
+            });
+          }
+
+          const CATEGORIAS = ["basura","alumbrado","baches","pastizales","robo","personas_sospechosas","fugas_agua","drenaje","banquetas","semaforos","limpieza","graffiti","escombros","arboles","vandalismo","vehiculos_abandonados","iluminacion","animales_callejeros","plagas","senalizacion","estacionamiento","transporte"];
+          transcript = extracted.descripcion || "";
+          const categoria = CATEGORIAS.includes(extracted.categoria) ? extracted.categoria : "basura";
+          const descripcion = (extracted.descripcion || "").slice(0, 500);
+          const barrio = extracted.barrio || "Sin especificar";
+          const direccion = extracted.direccion || "Sin especificar";
+
+          // Geocodificar dirección extraída
+          let reportLat = lat;
+          let reportLng = lng;
+          if (direccion !== "Sin especificar") {
+            try {
+              const bbox = "-59.85,-29.30,-59.45,-28.95";
+              const sepRegex = /\s+(?:y|e|-|\/|esq\.?|esquina|entre|casi)\s+/i;
+              const parts = direccion.split(sepRegex).map((s: string) => s.trim()).filter(Boolean);
+              const isIntersection = parts.length >= 2;
+              const normalize = (s: string) => s.replace(/[áàä]/gi,"a").replace(/[éèë]/gi,"e").replace(/[íìï]/gi,"i").replace(/[óòö]/gi,"o").replace(/[úùü]/gi,"u");
+              const doGeocode = async (q: string) => {
+                const encoded = encodeURIComponent(`${q}, Reconquista, Santa Fe, Argentina`);
+                const res = await fetch(`https://nominatim.openstreetmap.org/search?q=${encoded}&format=json&limit=1&countrycodes=ar&viewbox=${bbox}&bounded=1`, { headers: { "User-Agent": "warning-app/1.0" } });
+                const data = await res.json();
+                return data.length > 0 ? { lat: parseFloat(data[0].lat), lng: parseFloat(data[0].lon) } : null;
+              };
+              const findIntersection = async (s1: string, s2: string) => {
+                const query = `[out:json][timeout:15];way["highway"]["name"~"${normalize(s1)}",i](-29.30,-59.85,-28.95,-59.45)->.a;way["highway"]["name"~"${normalize(s2)}",i](-29.30,-59.85,-28.95,-59.45)->.b;node(w.a)(w.b);out 1;`;
+                const res = await fetch("https://overpass-api.de/api/interpreter", { method: "POST", body: `data=${encodeURIComponent(query)}`, headers: { "Content-Type": "application/x-www-form-urlencoded" } });
+                const data = await res.json();
+                return data.elements?.length > 0 ? { lat: data.elements[0].lat, lng: data.elements[0].lon } : null;
+              };
+              let found = null;
+              if (isIntersection) {
+                found = await findIntersection(parts[0], parts[1]);
+                if (!found) found = await doGeocode(parts[0]);
+              } else {
+                found = await doGeocode(direccion);
+                if (!found) found = await doGeocode(parts[0]);
+              }
+              if (found) { reportLat = found.lat; reportLng = found.lng; }
+            } catch {}
+          }
+
+          const id = `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+          const now = new Date();
+          const result = await db.query(
+            `INSERT INTO "Report" (id, lat, lng, category, description, barrio, direccion, photo, photos, "isUrgent", "createdAt", "updatedAt") VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12) RETURNING *`,
+            [id, reportLat, reportLng, categoria, descripcion, barrio, direccion, null, [], false, now, now],
+          );
+          const newReport = result.rows[0];
+          try {
+            const subscriptions = await db.query('SELECT endpoint, p256dh, auth FROM "PushSubscription"');
+            for (const sub of subscriptions.rows) {
+              await webPush.sendNotification({ endpoint: sub.endpoint, keys: { p256dh: sub.p256dh, auth: sub.auth } }, JSON.stringify({ title: `Reporte por voz: ${categoria}`, body: descripcion, url: "/" })).catch(() => {});
+            }
+          } catch {}
+          return new Response(JSON.stringify({ report: newReport, extracted }), {
+            status: 201,
+            headers: { ...corsHeaders, "Content-Type": "application/json" },
+          });
+
         } else {
-          // Fallback JSON (compatibilidad)
+          // Fallback JSON
           const body = await req.json();
           transcript = body.transcript;
           lat = body.lat;
@@ -1124,111 +1215,19 @@ const server = Bun.serve({
           });
         }
 
-        const CATEGORIAS = [
-          "basura", "alumbrado", "baches", "pastizales", "robo",
-          "personas_sospechosas", "fugas_agua", "drenaje", "banquetas",
-          "semaforos", "limpieza", "graffiti", "escombros", "arboles",
-          "vandalismo", "vehiculos_abandonados", "iluminacion",
-          "animales_callejeros", "plagas", "senalizacion",
-          "estacionamiento", "transporte",
-        ];
-
-        const prompt = `Sos un extractor de datos para una app de reportes ciudadanos de Reconquista, Santa Fe, Argentina.
-Extraé los campos del mensaje de voz y devolvé ÚNICAMENTE un JSON válido, sin texto adicional, sin markdown, sin explicaciones.
-
-DEFINICIONES IMPORTANTES:
-- "barrio": SOLO es el nombre de un barrio residencial (ej: "Centro", "Barrio Norte", "Barrio San Martín", "Barrio Pucará"). NUNCA es un nombre de calle ni un número. Si no se menciona un barrio, usá "Sin especificar".
-- "direccion": es la CALLE completa con número o intersección (ej: "Iriondo 1200", "San Martín y Roca", "Ruta 11 esquina Rivadavia"). Siempre incluí el nombre de la calle. "al 800" significa número 800, escribilo como "NombreCalle 800".
-- "descripcion": describe el problema en pocas palabras, tal como lo dijo el usuario.
-- "categoria": el tipo de problema más cercano de la lista.
-- "enviar_servicios": true si el usuario menciona avisar/mandar/enviar a servicios públicos, municipalidad, municipio, intendencia o similar. false en cualquier otro caso.
-
-REGLAS ESPECIALES:
-- "esquina", "y", "entre", "casi", "e" entre dos calles = intersección → va en "direccion"
-- "al 500", "altura 500", "número 500" = número de calle → va junto al nombre de calle en "direccion"
-- "ruta 11", "RN11", "ruta nacional 11" = escribila como "Ruta Nacional 11"
-- Si mencionan un choque, accidente o situación de tráfico → categoria: "transporte"
-- Si no hay barrio mencionado → barrio: "Sin especificar"
-
-EJEMPLOS:
-Mensaje: "hay un bache en calle Iriondo al 1200"
-JSON: {"categoria":"baches","descripcion":"bache en calle Iriondo","barrio":"Sin especificar","direccion":"Iriondo 1200","enviar_servicios":false}
-
-Mensaje: "hay un bache en Pellegrini al 500, avisá a servicios públicos"
-JSON: {"categoria":"baches","descripcion":"bache en Pellegrini","barrio":"Sin especificar","direccion":"Pellegrini 500","enviar_servicios":true}
-
-Mensaje: "basura sin recolectar en Mitre 300, mandá a la municipalidad"
-JSON: {"categoria":"basura","descripcion":"basura sin recolectar","barrio":"Sin especificar","direccion":"Mitre 300","enviar_servicios":true}
-
-Mensaje: "falta el alumbrado en Belgrano y Salta, avisar al municipio"
-JSON: {"categoria":"alumbrado","descripcion":"falta alumbrado público","barrio":"Sin especificar","direccion":"Belgrano y Salta","enviar_servicios":true}
-
-Mensaje: "choque en calle San Martín y Roca, andar con cuidado"
-JSON: {"categoria":"transporte","descripcion":"accidente de tránsito, circular con precaución","barrio":"Sin especificar","direccion":"San Martín y Roca"}
-
-Mensaje: "semáforo roto en ruta 11 en la esquina de Rivadavia"
-JSON: {"categoria":"semaforos","descripcion":"semáforo roto","barrio":"Sin especificar","direccion":"Ruta Nacional 11 y Rivadavia","enviar_servicios":false}
-
-Mensaje: "falta la luz en Belgrano 500, barrio centro"
-JSON: {"categoria":"alumbrado","descripcion":"falta alumbrado público","barrio":"Centro","direccion":"Belgrano 500"}
-
-Mensaje: "basura sin recolectar en San Martín y Rivadavia, barrio norte"
-JSON: {"categoria":"basura","descripcion":"basura sin recolectar","barrio":"Barrio Norte","direccion":"San Martín y Rivadavia"}
-
-Mensaje: "pastizales altísimos en Pellegrini al 800, barrio norte"
-JSON: {"categoria":"pastizales","descripcion":"pastizales muy altos","barrio":"Barrio Norte","direccion":"Pellegrini 800"}
-
-Mensaje: "se cayó un árbol en la vereda de Belgrano entre Salta y Córdoba"
-JSON: {"categoria":"arboles","descripcion":"árbol caído en la vereda","barrio":"Sin especificar","direccion":"Belgrano entre Salta y Córdoba"}
-
-Mensaje: "hay una pérdida de agua en Mitre casi Iriondo"
-JSON: {"categoria":"fugas_agua","descripcion":"pérdida de agua en la vía pública","barrio":"Sin especificar","direccion":"Mitre casi Iriondo"}
-
-Mensaje: "escombros tirados en la vereda de Roca al 400 barrio sur"
-JSON: {"categoria":"escombros","descripcion":"escombros en la vereda","barrio":"Barrio Sur","direccion":"Roca 400"}
-
-Mensaje: "no funciona el alumbrado en toda la cuadra de Salta entre Mitre y Pellegrini, barrio centro"
-JSON: {"categoria":"alumbrado","descripcion":"alumbrado sin funcionar en toda la cuadra","barrio":"Centro","direccion":"Salta entre Mitre y Pellegrini"}
-
-Mensaje: "hay un pozo enorme en la esquina de Iriondo y Tucumán"
-JSON: {"categoria":"baches","descripcion":"pozo grande en la esquina","barrio":"Sin especificar","direccion":"Iriondo y Tucumán"}
-
-Mensaje: "perros sueltos en Avellaneda al 300"
-JSON: {"categoria":"animales_callejeros","descripcion":"perros sueltos en la vía pública","barrio":"Sin especificar","direccion":"Avellaneda 300"}
-
-Categorías válidas: ${CATEGORIAS.join(", ")}
-
-Mensaje de voz: "${transcript.replace(/"/g, "'")}"
-
-Devolvé solo el JSON:`;
-
-        // Llamar a Groq
+        // Fallback path (JSON): usar Groq NLP
+        const CATEGORIAS = ["basura","alumbrado","baches","pastizales","robo","personas_sospechosas","fugas_agua","drenaje","banquetas","semaforos","limpieza","graffiti","escombros","arboles","vandalismo","vehiculos_abandonados","iluminacion","animales_callejeros","plagas","senalizacion","estacionamiento","transporte"];
+        const prompt = `Extraé los campos del siguiente mensaje de voz en Reconquista, Santa Fe, Argentina y devolvé ÚNICAMENTE un JSON. Campos: categoria (una de: ${CATEGORIAS.join(",")}), descripcion, barrio (o "Sin especificar"), direccion (calle+número o intersección), enviar_servicios (true/false). Mensaje: "${transcript.replace(/"/g, "'")}"`;
         const groqRes = await fetch("https://api.groq.com/openai/v1/chat/completions", {
           method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            "Authorization": `Bearer ${process.env.GROQ_API_KEY}`,
-          },
-          body: JSON.stringify({
-            model: "llama-3.1-8b-instant",
-            messages: [{ role: "user", content: prompt }],
-            temperature: 0.1,
-            max_tokens: 200,
-          }),
+          headers: { "Content-Type": "application/json", "Authorization": `Bearer ${process.env.GROQ_API_KEY}` },
+          body: JSON.stringify({ model: "llama-3.1-8b-instant", messages: [{ role: "user", content: prompt }], temperature: 0.1, max_tokens: 200 }),
         });
-
         if (!groqRes.ok) {
-          const errBody = await groqRes.text();
-          console.error("Groq error:", errBody);
-          return new Response(JSON.stringify({ error: "Error al procesar el mensaje de voz" }), {
-            status: 500,
-            headers: { ...corsHeaders, "Content-Type": "application/json" },
-          });
+          return new Response(JSON.stringify({ error: "Error al procesar el mensaje de voz" }), { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } });
         }
-
         const groqData = await groqRes.json();
         let extracted: any;
-
         try {
           const raw = groqData.choices[0].message.content.trim();
           const jsonMatch = raw.match(/\{[\s\S]*\}/);
