@@ -1042,7 +1042,7 @@ DEFINICIONES IMPORTANTES:
 REGLAS ESPECIALES:
 - "esquina", "y", "entre", "casi", "e" entre dos calles = intersección → va en "direccion"
 - "al 500", "altura 500", "número 500" = número de calle → va junto al nombre de calle en "direccion"
-- "ruta 11", "RN11", "ruta nacional 11" = dirección válida
+- "ruta 11", "RN11", "ruta nacional 11" = se llama "Hipólito Irigoyen" dentro de la ciudad, usá ese nombre
 - Si mencionan un choque, accidente o situación de tráfico → categoria: "transporte"
 - Si no hay barrio mencionado → barrio: "Sin especificar"
 
@@ -1054,7 +1054,7 @@ Mensaje: "choque en calle San Martín y Roca, andar con cuidado"
 JSON: {"categoria":"transporte","descripcion":"accidente de tránsito, circular con precaución","barrio":"Sin especificar","direccion":"San Martín y Roca"}
 
 Mensaje: "semáforo roto en ruta 11 en la esquina de Rivadavia"
-JSON: {"categoria":"semaforos","descripcion":"semáforo roto","barrio":"Sin especificar","direccion":"Ruta 11 y Rivadavia"}
+JSON: {"categoria":"semaforos","descripcion":"semáforo roto","barrio":"Sin especificar","direccion":"Hipólito Irigoyen y Rivadavia"}
 
 Mensaje: "falta la luz en Belgrano 500, barrio centro"
 JSON: {"categoria":"alumbrado","descripcion":"falta alumbrado público","barrio":"Centro","direccion":"Belgrano 500"}
