@@ -1034,20 +1034,54 @@ const server = Bun.serve({
 Extraé los campos del mensaje de voz y devolvé ÚNICAMENTE un JSON válido, sin texto adicional, sin markdown, sin explicaciones.
 
 DEFINICIONES IMPORTANTES:
-- "barrio": es el NOMBRE DE UN BARRIO (ej: "Centro", "Barrio Norte", "Barrio San Martín"). NUNCA es un nombre de calle. Si no se menciona un barrio explícitamente, usá "Sin especificar".
-- "direccion": es la CALLE y el NÚMERO (ej: "Iriondo 1200", "San Martín 450", "Belgrano y Roca"). Incluí el nombre completo de la calle y el número juntos en este campo.
-- "descripcion": describe el problema brevemente.
-- "categoria": clasificá el tipo de problema.
+- "barrio": SOLO es el nombre de un barrio residencial (ej: "Centro", "Barrio Norte", "Barrio San Martín", "Barrio Pucará"). NUNCA es un nombre de calle ni un número. Si no se menciona un barrio, usá "Sin especificar".
+- "direccion": es la CALLE completa con número o intersección (ej: "Iriondo 1200", "San Martín y Roca", "Ruta 11 esquina Rivadavia"). Siempre incluí el nombre de la calle. "al 800" significa número 800, escribilo como "NombreCalle 800".
+- "descripcion": describe el problema en pocas palabras, tal como lo dijo el usuario.
+- "categoria": el tipo de problema más cercano de la lista.
+
+REGLAS ESPECIALES:
+- "esquina", "y", "entre", "casi", "e" entre dos calles = intersección → va en "direccion"
+- "al 500", "altura 500", "número 500" = número de calle → va junto al nombre de calle en "direccion"
+- "ruta 11", "RN11", "ruta nacional 11" = dirección válida
+- Si mencionan un choque, accidente o situación de tráfico → categoria: "transporte"
+- Si no hay barrio mencionado → barrio: "Sin especificar"
 
 EJEMPLOS:
 Mensaje: "hay un bache en calle Iriondo al 1200"
 JSON: {"categoria":"baches","descripcion":"bache en calle Iriondo","barrio":"Sin especificar","direccion":"Iriondo 1200"}
+
+Mensaje: "choque en calle San Martín y Roca, andar con cuidado"
+JSON: {"categoria":"transporte","descripcion":"accidente de tránsito, circular con precaución","barrio":"Sin especificar","direccion":"San Martín y Roca"}
+
+Mensaje: "semáforo roto en ruta 11 en la esquina de Rivadavia"
+JSON: {"categoria":"semaforos","descripcion":"semáforo roto","barrio":"Sin especificar","direccion":"Ruta 11 y Rivadavia"}
 
 Mensaje: "falta la luz en Belgrano 500, barrio centro"
 JSON: {"categoria":"alumbrado","descripcion":"falta alumbrado público","barrio":"Centro","direccion":"Belgrano 500"}
 
 Mensaje: "basura sin recolectar en San Martín y Rivadavia, barrio norte"
 JSON: {"categoria":"basura","descripcion":"basura sin recolectar","barrio":"Barrio Norte","direccion":"San Martín y Rivadavia"}
+
+Mensaje: "pastizales altísimos en Pellegrini al 800, barrio norte"
+JSON: {"categoria":"pastizales","descripcion":"pastizales muy altos","barrio":"Barrio Norte","direccion":"Pellegrini 800"}
+
+Mensaje: "se cayó un árbol en la vereda de Belgrano entre Salta y Córdoba"
+JSON: {"categoria":"arboles","descripcion":"árbol caído en la vereda","barrio":"Sin especificar","direccion":"Belgrano entre Salta y Córdoba"}
+
+Mensaje: "hay una pérdida de agua en Mitre casi Iriondo"
+JSON: {"categoria":"fugas_agua","descripcion":"pérdida de agua en la vía pública","barrio":"Sin especificar","direccion":"Mitre casi Iriondo"}
+
+Mensaje: "escombros tirados en la vereda de Roca al 400 barrio sur"
+JSON: {"categoria":"escombros","descripcion":"escombros en la vereda","barrio":"Barrio Sur","direccion":"Roca 400"}
+
+Mensaje: "no funciona el alumbrado en toda la cuadra de Salta entre Mitre y Pellegrini, barrio centro"
+JSON: {"categoria":"alumbrado","descripcion":"alumbrado sin funcionar en toda la cuadra","barrio":"Centro","direccion":"Salta entre Mitre y Pellegrini"}
+
+Mensaje: "hay un pozo enorme en la esquina de Iriondo y Tucumán"
+JSON: {"categoria":"baches","descripcion":"pozo grande en la esquina","barrio":"Sin especificar","direccion":"Iriondo y Tucumán"}
+
+Mensaje: "perros sueltos en Avellaneda al 300"
+JSON: {"categoria":"animales_callejeros","descripcion":"perros sueltos en la vía pública","barrio":"Sin especificar","direccion":"Avellaneda 300"}
 
 Categorías válidas: ${CATEGORIAS.join(", ")}
 
