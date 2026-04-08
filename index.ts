@@ -1099,28 +1099,35 @@ Campos:
 
 Devolvé solo el JSON:`;
 
-          const geminiRes = await fetch(
-            `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${process.env.GEMINI_API_KEY}`,
-            {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({
-                contents: [{
-                  parts: [
-                    { inline_data: { mime_type: "audio/webm", data: audioBase64 } },
-                    { text: geminiPrompt },
-                  ],
-                }],
-                generationConfig: { temperature: 0.1, maxOutputTokens: 200 },
-              }),
-            }
+          const geminiBody = JSON.stringify({
+            contents: [{
+              parts: [
+                { inline_data: { mime_type: "audio/webm", data: audioBase64 } },
+                { text: geminiPrompt },
+              ],
+            }],
+            generationConfig: { temperature: 0.1, maxOutputTokens: 200 },
+          });
+
+          const callGemini = () => fetch(
+            `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-lite:generateContent?key=${process.env.GEMINI_API_KEY}`,
+            { method: "POST", headers: { "Content-Type": "application/json" }, body: geminiBody }
           );
+
+          let geminiRes = await callGemini();
+
+          // Si es rate limit, esperar 15s y reintentar una vez
+          if (geminiRes.status === 429) {
+            console.log("Gemini rate limit, reintentando en 15s...");
+            await new Promise((r) => setTimeout(r, 15000));
+            geminiRes = await callGemini();
+          }
 
           if (!geminiRes.ok) {
             const err = await geminiRes.text();
             console.error("Gemini error:", err);
-            return new Response(JSON.stringify({ error: "Error al procesar el audio" }), {
-              status: 500,
+            return new Response(JSON.stringify({ error: "Servicio temporalmente no disponible. Intentá en unos segundos." }), {
+              status: 503,
               headers: { ...corsHeaders, "Content-Type": "application/json" },
             });
           }
