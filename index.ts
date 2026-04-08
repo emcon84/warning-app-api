@@ -1194,7 +1194,28 @@ JSON:`;
               const sepRegex = /\s+(?:y|e|-|\/|esq\.?|esquina|entre|casi)\s+/i;
               const parts = direccion.split(sepRegex).map((s: string) => s.trim()).filter(Boolean);
               const isIntersection = parts.length >= 2;
-              const normalize = (s: string) => s.replace(/[áàä]/gi,"a").replace(/[éèë]/gi,"e").replace(/[íìï]/gi,"i").replace(/[óòö]/gi,"o").replace(/[úùü]/gi,"u");
+              const normalize = (s: string) => s
+                .replace(/[áàä]/gi,"a").replace(/[éèë]/gi,"e").replace(/[íìï]/gi,"i")
+                .replace(/[óòö]/gi,"o").replace(/[úùü]/gi,"u");
+
+              // Extraer palabra clave para búsqueda en Overpass (último token significativo)
+              const SKIP_WORDS = new Set(["calle","avenida","av","bulevar","blvd","ruta","nacional","de","del","la","los","las","el"]);
+              const overpassKeyword = (s: string): string => {
+                // Aliases conocidos
+                const aliases: Record<string, string> = {
+                  "yrigoyen": "irigoyen", "hipolito irigoyen": "irigoyen",
+                  "hipolito yrigoyen": "irigoyen", "ruta 11": "irigoyen",
+                  "ruta nacional 11": "irigoyen", "san martin": "martin",
+                  "25 de mayo": "mayo", "9 de julio": "julio",
+                  "bulevar lovato": "lovato", "patricio diez": "diez",
+                };
+                const norm = normalize(s.toLowerCase());
+                if (aliases[norm]) return aliases[norm];
+                // Último token no trivial
+                const tokens = norm.split(/\s+/).filter(t => t.length > 2 && !SKIP_WORDS.has(t));
+                return tokens[tokens.length - 1] || norm;
+              };
+
               const doGeocode = async (q: string) => {
                 const encoded = encodeURIComponent(`${q}, Reconquista, Santa Fe, Argentina`);
                 const res = await fetch(`https://nominatim.openstreetmap.org/search?q=${encoded}&format=json&limit=1&countrycodes=ar&viewbox=${bbox}&bounded=1`, { headers: { "User-Agent": "warning-app/1.0" } });
@@ -1202,7 +1223,10 @@ JSON:`;
                 return data.length > 0 ? { lat: parseFloat(data[0].lat), lng: parseFloat(data[0].lon) } : null;
               };
               const findIntersection = async (s1: string, s2: string) => {
-                const query = `[out:json][timeout:15];way["highway"]["name"~"${normalize(s1)}",i](-29.30,-59.85,-28.95,-59.45)->.a;way["highway"]["name"~"${normalize(s2)}",i](-29.30,-59.85,-28.95,-59.45)->.b;node(w.a)(w.b);out 1;`;
+                const k1 = overpassKeyword(s1);
+                const k2 = overpassKeyword(s2);
+                console.log(`Overpass intersection: "${k1}" ∩ "${k2}"`);
+                const query = `[out:json][timeout:15];way["highway"]["name"~"${k1}",i](-29.30,-59.85,-28.95,-59.45)->.a;way["highway"]["name"~"${k2}",i](-29.30,-59.85,-28.95,-59.45)->.b;node(w.a)(w.b);out 1;`;
                 const res = await fetch("https://overpass-api.de/api/interpreter", { method: "POST", body: `data=${encodeURIComponent(query)}`, headers: { "Content-Type": "application/x-www-form-urlencoded" } });
                 const data = await res.json();
                 return data.elements?.length > 0 ? { lat: data.elements[0].lat, lng: data.elements[0].lon } : null;
