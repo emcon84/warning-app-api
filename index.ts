@@ -1088,7 +1088,7 @@ const server = Bun.serve({
         const now = new Date();
         const result = await db.query(
           `INSERT INTO "Report" (id, lat, lng, category, description, barrio, direccion, photo, photos, "isUrgent", "createdAt", "updatedAt") VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12) RETURNING *`,
-          [id, lat, lng, "basura", description.slice(0, 500), "Sin especificar", "Sin especificar", null, [], false, now, now],
+          [id, lat, lng, "voz", description.slice(0, 500), "Sin especificar", "Sin especificar", null, [], false, now, now],
         );
         const newReport = result.rows[0];
         try {
