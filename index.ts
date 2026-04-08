@@ -1010,6 +1010,54 @@ const server = Bun.serve({
 
       // ─── VOZ ──────────────────────────────────────────────────────────────
 
+      // Calles conocidas de Reconquista para corrección fuzzy post-transcripción
+      const CALLES_RECONQUISTA = [
+        "Habegger","Iriondo","Pellegrini","Rivadavia","Avellaneda","Belgrano",
+        "San Martín","Mitre","Roca","Colón","Sarmiento","Tucumán","Córdoba",
+        "Mendoza","Entre Ríos","Corrientes","La Rioja","San Juan","Moreno",
+        "Iturraspe","Ituzaingó","Almafuerte","Chacabuco","Freyre","Ludueña",
+        "Bolívar","Alvear","Independencia","Amenabar","Patricio Diez",
+        "Bulevar Lovato","Bulevar Constituyentes","25 de Mayo","9 de Julio",
+        "Ruta Nacional 11","Fuerza Aérea","Ledesma","Cernadas","Obligado",
+        "Calle 41","Calle 43","Calle 44","Calle 45","Calle 46","Calle 47",
+        "Calle 48","Calle 50","Calle 52","Calle 54","Calle 56","Calle 58",
+        "Calle 60","Calle 62",
+      ];
+
+      // Levenshtein distance
+      const levenshtein = (a: string, b: string): number => {
+        const m = a.length, n = b.length;
+        const dp: number[][] = Array.from({length: m+1}, (_, i) => [i, ...Array(n).fill(0)]);
+        for (let j = 0; j <= n; j++) dp[0][j] = j;
+        for (let i = 1; i <= m; i++)
+          for (let j = 1; j <= n; j++)
+            dp[i][j] = a[i-1] === b[j-1] ? dp[i-1][j-1] : 1 + Math.min(dp[i-1][j], dp[i][j-1], dp[i-1][j-1]);
+        return dp[m][n];
+      };
+
+      // Corregir palabras del transcript que se parezcan a calles conocidas
+      const correctStreetNames = (text: string): string => {
+        const words = text.split(/\b/);
+        return words.map(word => {
+          if (word.length < 4) return word;
+          const wordLower = word.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+          let bestMatch = "";
+          let bestDist = Infinity;
+          for (const calle of CALLES_RECONQUISTA) {
+            if (calle.includes(" ")) continue; // calles compuestas las manejamos aparte
+            const calleLower = calle.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+            if (Math.abs(wordLower.length - calleLower.length) > 4) continue;
+            const dist = levenshtein(wordLower, calleLower);
+            const threshold = Math.max(2, Math.floor(calleLower.length * 0.3));
+            if (dist < bestDist && dist <= threshold) {
+              bestDist = dist;
+              bestMatch = calle;
+            }
+          }
+          return bestMatch || word;
+        }).join("");
+      };
+
       // POST /api/voice/report - Crear reporte desde voz
       if (path === "/api/voice/report" && method === "POST") {
         const contentType = req.headers.get("content-type") || "";
@@ -1057,8 +1105,10 @@ const server = Bun.serve({
             });
           }
 
-          transcript = (await whisperRes.text()).trim();
-          console.log("Whisper transcript:", transcript);
+          const rawTranscript = (await whisperRes.text()).trim();
+          transcript = correctStreetNames(rawTranscript);
+          console.log("Whisper raw:", rawTranscript);
+          console.log("Whisper corrected:", transcript);
         } else {
           // Fallback JSON (compatibilidad)
           const body = await req.json();
