@@ -1095,16 +1095,16 @@ const server = Bun.serve({
             });
           }
 
-          // Paso 1: OpenAI Whisper — transcripción
+          // Paso 1: Groq Whisper — transcripción
           const whisperForm = new FormData();
           whisperForm.append("file", new Blob([await audioFile.arrayBuffer()], { type: "audio/webm" }), "audio.webm");
-          whisperForm.append("model", "whisper-1");
+          whisperForm.append("model", "whisper-large-v3");
           whisperForm.append("language", "es");
           whisperForm.append("prompt", "Reporte ciudadano en Reconquista, Santa Fe, Argentina. Calles: Habegger, Iturraspe, Ituzaingó, Almafuerte, Ludueña, Amenabar, Bulevar Lovato, Patricio Diez, Ruta Nacional 11, Avellaneda, Pellegrini, Rivadavia, Iriondo.");
 
-          const whisperRes = await fetch("https://api.openai.com/v1/audio/transcriptions", {
+          const whisperRes = await fetch("https://api.groq.com/openai/v1/audio/transcriptions", {
             method: "POST",
-            headers: { Authorization: `Bearer ${process.env.OPENAI_API_KEY}` },
+            headers: { Authorization: `Bearer ${process.env.GROQ_API_KEY}` },
             body: whisperForm,
           });
 
@@ -1123,7 +1123,7 @@ const server = Bun.serve({
           console.log("Whisper raw:", rawTranscript);
           console.log("Whisper corrected:", correctedTranscript);
 
-          // Paso 2: GPT-4o mini — extraer JSON estructurado
+          // Paso 2: Groq LLaMA 70B — extraer JSON estructurado
           const nlpPrompt = `Sos un asistente para reportes ciudadanos de Reconquista, Santa Fe, Argentina.
 Analizá este texto y devolvé SOLO un JSON válido, sin texto adicional ni markdown.
 
@@ -1142,11 +1142,11 @@ Texto a analizar: "${correctedTranscript}"
 
 JSON:`;
 
-          const llmRes = await fetch("https://api.openai.com/v1/chat/completions", {
+          const llmRes = await fetch("https://api.groq.com/openai/v1/chat/completions", {
             method: "POST",
-            headers: { Authorization: `Bearer ${process.env.OPENAI_API_KEY}`, "Content-Type": "application/json" },
+            headers: { Authorization: `Bearer ${process.env.GROQ_API_KEY}`, "Content-Type": "application/json" },
             body: JSON.stringify({
-              model: "gpt-4o-mini",
+              model: "llama-3.3-70b-versatile",
               messages: [{ role: "user", content: nlpPrompt }],
               temperature: 0.1,
               max_tokens: 200,
