@@ -1149,12 +1149,36 @@ Devolvé solo el JSON:`;
         let reportLng = lng;
         if (direccion !== "Sin especificar") {
           try {
-            const bbox = "-59.85,-29.30,-59.45,-28.95";
             const sepRegex = /\s+(?:y|e|-|\/|esq\.?|esquina|entre|casi)\s+/i;
             const parts = direccion.split(sepRegex).map((s: string) => s.trim()).filter(Boolean);
             const isIntersection = parts.length >= 2;
 
-            const doGeocode = async (q: string) => {
+            // Normalizar nombre de calle para búsqueda (quitar tildes, lowercase parcial)
+            const normalize = (s: string) => s.replace(/[áàä]/gi,"a").replace(/[éèë]/gi,"e").replace(/[íìï]/gi,"i").replace(/[óòö]/gi,"o").replace(/[úùü]/gi,"u");
+
+            // Overpass API: busca el nodo exacto donde dos calles se cruzan
+            const findIntersection = async (street1: string, street2: string) => {
+              const query = `[out:json][timeout:10];
+area["name"="Reconquista"]["admin_level"~"8|6"]->.city;
+way["highway"]["name"~"${normalize(street1)}",i](area.city)->.a;
+way["highway"]["name"~"${normalize(street2)}",i](area.city)->.b;
+node(w.a)(w.b);
+out center 1;`;
+              const res = await fetch("https://overpass-api.de/api/interpreter", {
+                method: "POST",
+                body: query,
+                headers: { "Content-Type": "text/plain" },
+              });
+              const data = await res.json();
+              if (data.elements?.length > 0) {
+                return { lat: data.elements[0].lat, lng: data.elements[0].lon };
+              }
+              return null;
+            };
+
+            // Nominatim para calle + número
+            const geocodeAddress = async (q: string) => {
+              const bbox = "-59.85,-29.30,-59.45,-28.95";
               const encoded = encodeURIComponent(`${q}, Reconquista, Santa Fe, Argentina`);
               const res = await fetch(
                 `https://nominatim.openstreetmap.org/search?q=${encoded}&format=json&limit=1&countrycodes=ar&viewbox=${bbox}&bounded=1`,
@@ -1164,39 +1188,19 @@ Devolvé solo el JSON:`;
               return data.length > 0 ? { lat: parseFloat(data[0].lat), lng: parseFloat(data[0].lon) } : null;
             };
 
-            // 1. Intentar la dirección completa
-            let found = await doGeocode(direccion);
+            let found = null;
 
-            // 2. Para intersecciones: intentar formato Nominatim con &
-            if (!found && isIntersection) {
-              await new Promise(r => setTimeout(r, 300));
-              found = await doGeocode(`${parts[0]} & ${parts[1]}`);
-            }
-
-            // 3. Si sigue sin encontrar: geocodificar cada calle por separado y promediar
-            if (!found && isIntersection) {
-              await new Promise(r => setTimeout(r, 300));
-              const coord1 = await doGeocode(parts[0]);
-              await new Promise(r => setTimeout(r, 300));
-              const coord2 = await doGeocode(parts[1]);
-
-              if (coord1 && coord2) {
-                // Promedio de ambas calles ≈ intersección aproximada
-                found = {
-                  lat: (coord1.lat + coord2.lat) / 2,
-                  lng: (coord1.lng + coord2.lng) / 2,
-                };
-              } else if (coord1) {
-                found = coord1;
-              } else if (coord2) {
-                found = coord2;
+            if (isIntersection) {
+              // 1. Overpass: intersección exacta
+              found = await findIntersection(parts[0], parts[1]);
+              // 2. Fallback Nominatim con solo la primera calle
+              if (!found) {
+                found = await geocodeAddress(parts[0]);
               }
-            }
-
-            // 4. Fallback: solo la primera parte de la dirección
-            if (!found) {
-              await new Promise(r => setTimeout(r, 300));
-              found = await doGeocode(parts[0] || direccion);
+            } else {
+              // Calle + número: Nominatim
+              found = await geocodeAddress(direccion);
+              if (!found) found = await geocodeAddress(parts[0]);
             }
 
             if (found) {
