@@ -1472,7 +1472,14 @@ out 1;`;
 
       // GET /api/supermarkets - Lista todos los supermercados
       if (path === "/api/supermarkets" && method === "GET") {
-        const result = await db.query('SELECT * FROM "Supermarket" ORDER BY name');
+        const result = await db.query(`
+          SELECT s.*, COUNT(o.id)::int AS "offerCount"
+          FROM "Supermarket" s
+          LEFT JOIN "Offer" o ON o."supermarketId" = s.id
+            AND (o."validUntil" IS NULL OR o."validUntil" >= CURRENT_DATE)
+          GROUP BY s.id
+          ORDER BY s.name
+        `);
         return new Response(JSON.stringify(result.rows), {
           headers: { ...corsHeaders, "Content-Type": "application/json" },
         });
