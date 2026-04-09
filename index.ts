@@ -1573,6 +1573,58 @@ out 1;`;
         });
       }
 
+      // PUT /api/offers/:id - Actualizar oferta
+      if (path.match(/^\/api\/offers\/[^/]+$/) && method === "PUT") {
+        const id = path.split("/")[3];
+        const contentType = req.headers.get("content-type") || "";
+        let description: string, price: string | null, validUntil: string | null, photoPath: string | null | undefined;
+
+        if (contentType.includes("multipart/form-data")) {
+          const formData = await req.formData();
+          description = formData.get("description") as string;
+          price = (formData.get("price") as string) || null;
+          validUntil = (formData.get("validUntil") as string) || null;
+          const photoFile = formData.get("photo") as File | null;
+          if (photoFile && photoFile.size > 0) {
+            const uploadsDir = process.env.UPLOADS_DIR || "./uploads";
+            const ext = photoFile.name.split(".").pop() || "jpg";
+            const filename = `offer_${crypto.randomUUID()}.${ext}`;
+            await Bun.write(`${uploadsDir}/${filename}`, photoFile);
+            photoPath = `/uploads/${filename}`;
+          } else {
+            photoPath = undefined; // no cambiar
+          }
+        } else {
+          const body = await req.json();
+          description = body.description;
+          price = body.price || null;
+          validUntil = body.validUntil || null;
+          photoPath = undefined;
+        }
+
+        const updates: string[] = [];
+        const values: (string | null)[] = [];
+        let i = 1;
+        if (description) { updates.push(`description = $${i++}`); values.push(description); }
+        if (price !== undefined) { updates.push(`price = $${i++}`); values.push(price); }
+        if (validUntil !== undefined) { updates.push(`"validUntil" = $${i++}`); values.push(validUntil); }
+        if (photoPath !== undefined) { updates.push(`photo = $${i++}`); values.push(photoPath); }
+
+        if (updates.length === 0) {
+          return new Response(JSON.stringify({ error: "Nada que actualizar" }), {
+            status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" },
+          });
+        }
+        values.push(id);
+        const result = await db.query(
+          `UPDATE "Offer" SET ${updates.join(", ")} WHERE id = $${i} RETURNING *`,
+          values
+        );
+        return new Response(JSON.stringify(result.rows[0]), {
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+
       // DELETE /api/offers/:id - Eliminar oferta
       if (path.match(/^\/api\/offers\/[^/]+$/) && method === "DELETE") {
         const id = path.split("/")[3];
