@@ -78,6 +78,30 @@ if (!existsSync(uploadsDir)) {
   mkdirSync(uploadsDir, { recursive: true });
 }
 
+// Crear tablas de ofertas si no existen
+await db.query(`
+  CREATE TABLE IF NOT EXISTS "Supermarket" (
+    id TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    address TEXT DEFAULT '',
+    lat DOUBLE PRECISION DEFAULT -29.15,
+    lng DOUBLE PRECISION DEFAULT -59.65,
+    logo TEXT,
+    "createdAt" TIMESTAMP DEFAULT NOW()
+  )
+`);
+await db.query(`
+  CREATE TABLE IF NOT EXISTS "Offer" (
+    id TEXT PRIMARY KEY,
+    "supermarketId" TEXT NOT NULL,
+    description TEXT NOT NULL,
+    price TEXT DEFAULT '',
+    photo TEXT,
+    "validUntil" DATE,
+    "createdAt" TIMESTAMP DEFAULT NOW()
+  )
+`);
+
 // Configuración CORS
 const corsHeaders = {
   "Access-Control-Allow-Origin": process.env.CORS_ORIGIN || "*",
@@ -1432,6 +1456,122 @@ out 1;`;
       }
 
       // ─── FIN VOZ ──────────────────────────────────────────────────────────
+
+      // ─── SUPERMARKETS & OFERTAS ───────────────────────────────────────────
+
+      // GET /api/supermarkets - Lista todos los supermercados
+      if (path === "/api/supermarkets" && method === "GET") {
+        const result = await db.query('SELECT * FROM "Supermarket" ORDER BY name');
+        return new Response(JSON.stringify(result.rows), {
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+
+      // POST /api/supermarkets - Crear supermercado
+      if (path === "/api/supermarkets" && method === "POST") {
+        const body = await req.json();
+        const { name, address, lat, lng, logo } = body;
+
+        if (!name) {
+          return new Response(JSON.stringify({ error: "El campo name es requerido" }), {
+            status: 400,
+            headers: { ...corsHeaders, "Content-Type": "application/json" },
+          });
+        }
+
+        const id = `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+
+        const result = await db.query(
+          `INSERT INTO "Supermarket" (id, name, address, lat, lng, logo)
+           VALUES ($1, $2, $3, $4, $5, $6)
+           RETURNING *`,
+          [id, name, address || "", lat ?? -29.15, lng ?? -59.65, logo || null]
+        );
+
+        return new Response(JSON.stringify(result.rows[0]), {
+          status: 201,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+
+      // GET /api/supermarkets/:id/offers - Ofertas vigentes de un supermercado
+      if (path.match(/^\/api\/supermarkets\/[^/]+\/offers$/) && method === "GET") {
+        const supermarketId = path.split("/")[3];
+        const result = await db.query(
+          `SELECT * FROM "Offer"
+           WHERE "supermarketId" = $1 AND ("validUntil" IS NULL OR "validUntil" >= CURRENT_DATE)
+           ORDER BY "createdAt" DESC`,
+          [supermarketId]
+        );
+        return new Response(JSON.stringify(result.rows), {
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+
+      // POST /api/offers - Crear oferta
+      if (path === "/api/offers" && method === "POST") {
+        const contentType = req.headers.get("content-type") || "";
+        let supermarketId: string;
+        let description: string;
+        let price: string | null;
+        let validUntil: string | null;
+        let photoPath: string | null = null;
+
+        if (contentType.includes("multipart/form-data")) {
+          const formData = await req.formData();
+          supermarketId = formData.get("supermarketId") as string;
+          description = formData.get("description") as string;
+          price = (formData.get("price") as string) || null;
+          validUntil = (formData.get("validUntil") as string) || null;
+
+          const photoFile = formData.get("photo") as File | null;
+          if (photoFile && photoFile.size > 0) {
+            const ext = photoFile.name.split(".").pop() || "jpg";
+            const filename = `${Date.now()}-${Math.random().toString(36).substr(2, 9)}.${ext}`;
+            const filePath = join(uploadsDir, filename);
+            await Bun.write(filePath, photoFile);
+            photoPath = `/uploads/${filename}`;
+          }
+        } else {
+          const body = await req.json();
+          supermarketId = body.supermarketId;
+          description = body.description;
+          price = body.price || null;
+          validUntil = body.validUntil || null;
+        }
+
+        if (!supermarketId || !description) {
+          return new Response(JSON.stringify({ error: "supermarketId y description son requeridos" }), {
+            status: 400,
+            headers: { ...corsHeaders, "Content-Type": "application/json" },
+          });
+        }
+
+        const id = `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+
+        const result = await db.query(
+          `INSERT INTO "Offer" (id, "supermarketId", description, price, photo, "validUntil")
+           VALUES ($1, $2, $3, $4, $5, $6)
+           RETURNING *`,
+          [id, supermarketId, description, price, photoPath, validUntil || null]
+        );
+
+        return new Response(JSON.stringify(result.rows[0]), {
+          status: 201,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+
+      // DELETE /api/offers/:id - Eliminar oferta
+      if (path.match(/^\/api\/offers\/[^/]+$/) && method === "DELETE") {
+        const id = path.split("/")[3];
+        await db.query('DELETE FROM "Offer" WHERE id = $1', [id]);
+        return new Response(JSON.stringify({ message: "Oferta eliminada" }), {
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+
+      // ─── FIN SUPERMARKETS & OFERTAS ───────────────────────────────────────
 
       // Ruta no encontrada
       return new Response(JSON.stringify({ error: "Ruta no encontrada" }), {
