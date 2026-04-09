@@ -1571,6 +1571,16 @@ out 1;`;
         });
       }
 
+      // DELETE /api/supermarkets/:id - Eliminar supermercado y sus ofertas
+      if (path.match(/^\/api\/supermarkets\/[^/]+$/) && method === "DELETE") {
+        const id = path.split("/")[3];
+        await db.query('DELETE FROM "Offer" WHERE "supermarketId" = $1', [id]);
+        await db.query('DELETE FROM "Supermarket" WHERE id = $1', [id]);
+        return new Response(JSON.stringify({ message: "Supermercado eliminado" }), {
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+
       // ─── FIN SUPERMARKETS & OFERTAS ───────────────────────────────────────
 
       // Ruta no encontrada
