@@ -102,6 +102,17 @@ await db.query(`
   )
 `);
 
+await db.query(`
+  CREATE TABLE IF NOT EXISTS "PageView" (
+    id TEXT PRIMARY KEY,
+    "sessionId" TEXT NOT NULL,
+    section TEXT NOT NULL,
+    "createdAt" TIMESTAMP DEFAULT NOW()
+  )
+`);
+await db.query(`CREATE INDEX IF NOT EXISTS "PageView_sessionId_idx" ON "PageView" ("sessionId")`);
+await db.query(`CREATE INDEX IF NOT EXISTS "PageView_createdAt_idx" ON "PageView" ("createdAt")`);
+
 // Configuración CORS
 const corsHeaders = {
   "Access-Control-Allow-Origin": process.env.CORS_ORIGIN || "*",
@@ -1567,6 +1578,102 @@ out 1;`;
         const id = path.split("/")[3];
         await db.query('DELETE FROM "Offer" WHERE id = $1', [id]);
         return new Response(JSON.stringify({ message: "Oferta eliminada" }), {
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+
+      // POST /api/track - Registrar visita de sección
+      if (path === "/api/track" && method === "POST") {
+        const body = await req.json();
+        const { sessionId, section } = body;
+        if (!sessionId || !section) {
+          return new Response(JSON.stringify({ error: "sessionId y section requeridos" }), {
+            status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" },
+          });
+        }
+        const id = crypto.randomUUID();
+        await db.query(
+          `INSERT INTO "PageView" (id, "sessionId", section) VALUES ($1, $2, $3)`,
+          [id, sessionId, section]
+        );
+        return new Response(JSON.stringify({ ok: true }), {
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+
+      // GET /api/analytics - Dashboard de estadísticas
+      if (path === "/api/analytics" && method === "GET") {
+        const [
+          uniqueToday,
+          uniqueWeek,
+          uniqueMonth,
+          uniqueTotal,
+          topSections,
+          dailyVisits,
+          totalReports,
+          reportsByCategory,
+          topBarrios,
+        ] = await Promise.all([
+          db.query(`SELECT COUNT(DISTINCT "sessionId") AS count FROM "PageView" WHERE "createdAt" >= CURRENT_DATE`),
+          db.query(`SELECT COUNT(DISTINCT "sessionId") AS count FROM "PageView" WHERE "createdAt" >= NOW() - INTERVAL '7 days'`),
+          db.query(`SELECT COUNT(DISTINCT "sessionId") AS count FROM "PageView" WHERE "createdAt" >= NOW() - INTERVAL '30 days'`),
+          db.query(`SELECT COUNT(DISTINCT "sessionId") AS count FROM "PageView"`),
+          db.query(`
+            SELECT section,
+              COUNT(*) AS visits,
+              COUNT(DISTINCT "sessionId") AS "uniqueVisitors"
+            FROM "PageView"
+            GROUP BY section
+            ORDER BY visits DESC
+          `),
+          db.query(`
+            SELECT DATE("createdAt") AS date,
+              COUNT(*) AS visits,
+              COUNT(DISTINCT "sessionId") AS "uniqueVisitors"
+            FROM "PageView"
+            WHERE "createdAt" >= NOW() - INTERVAL '30 days'
+            GROUP BY DATE("createdAt")
+            ORDER BY date ASC
+          `),
+          db.query(`SELECT COUNT(*) AS count FROM "Report"`),
+          db.query(`
+            SELECT category, COUNT(*) AS count
+            FROM "Report"
+            GROUP BY category
+            ORDER BY count DESC
+            LIMIT 8
+          `),
+          db.query(`
+            SELECT barrio, COUNT(*) AS count
+            FROM "Report"
+            WHERE barrio != 'Sin especificar' AND barrio != ''
+            GROUP BY barrio
+            ORDER BY count DESC
+            LIMIT 6
+          `),
+        ]);
+
+        return new Response(JSON.stringify({
+          uniqueVisitors: {
+            today: Number(uniqueToday.rows[0]?.count ?? 0),
+            week: Number(uniqueWeek.rows[0]?.count ?? 0),
+            month: Number(uniqueMonth.rows[0]?.count ?? 0),
+            total: Number(uniqueTotal.rows[0]?.count ?? 0),
+          },
+          topSections: topSections.rows.map(r => ({
+            section: r.section,
+            visits: Number(r.visits),
+            uniqueVisitors: Number(r.uniqueVisitors),
+          })),
+          dailyVisits: dailyVisits.rows.map(r => ({
+            date: r.date,
+            visits: Number(r.visits),
+            uniqueVisitors: Number(r.uniqueVisitors),
+          })),
+          totalReports: Number(totalReports.rows[0]?.count ?? 0),
+          reportsByCategory: reportsByCategory.rows.map(r => ({ category: r.category, count: Number(r.count) })),
+          topBarrios: topBarrios.rows.map(r => ({ barrio: r.barrio, count: Number(r.count) })),
+        }), {
           headers: { ...corsHeaders, "Content-Type": "application/json" },
         });
       }
