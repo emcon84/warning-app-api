@@ -5,6 +5,9 @@ import webPush from "web-push";
 import { OBRAS_SOCIALES } from "./lib/constants";
 import { createClerkClient, verifyToken } from "@clerk/backend";
 import { PrismaClient } from "@prisma/client";
+import { Resend } from "resend";
+
+const resend = process.env.RESEND_API_KEY ? new Resend(process.env.RESEND_API_KEY) : null;
 
 const prisma = new PrismaClient();
 const clerk = createClerkClient({ secretKey: process.env.CLERK_SECRET_KEY! });
@@ -2338,6 +2341,40 @@ out 1;`;
           }
         } catch {}
 
+        // Enviar email al profesional via Resend
+        if (resend) {
+          try {
+            const professional = await prisma.professional.findUnique({ where: { id: professionalId } });
+            if (professional?.clerkUserId) {
+              const clerkUser = await clerk.users.getUser(professional.clerkUserId);
+              const email = clerkUser.emailAddresses[0]?.emailAddress;
+              if (email) {
+                await resend.emails.send({
+                  from: "Reportes Reconquista <notificaciones@reportesreconquista.com>",
+                  to: email,
+                  subject: `Nuevo mensaje de un cliente`,
+                  html: `
+                    <div style="font-family: 'Montserrat', sans-serif; max-width: 600px; margin: 0 auto; background: #0f172a; color: #f1f5f9; padding: 32px; border-radius: 16px;">
+                      <img src="https://reportesreconquista.com/icon-192x192.png" width="48" height="48" style="border-radius: 12px; margin-bottom: 24px;" />
+                      <h2 style="color: #ffffff; margin: 0 0 8px;">Tenes un nuevo mensaje</h2>
+                      <p style="color: #94a3b8; margin: 0 0 24px;">Un vecino quiere contactarte a traves de Reportes Reconquista.</p>
+                      <div style="background: #1e293b; border-radius: 12px; padding: 16px; margin-bottom: 24px; border-left: 4px solid #6366f1;">
+                        <p style="color: #e2e8f0; margin: 0; font-style: italic;">"${firstMessage.slice(0, 200)}${firstMessage.length > 200 ? '...' : ''}"</p>
+                      </div>
+                      <a href="https://reportesreconquista.com/chat/${conversation.id}" style="display: inline-block; background: #6366f1; color: white; padding: 12px 24px; border-radius: 8px; text-decoration: none; font-weight: 600;">
+                        Ver mensaje y responder
+                      </a>
+                      <p style="color: #475569; font-size: 12px; margin-top: 32px;">Reportes Reconquista · Reconquista, Santa Fe</p>
+                    </div>
+                  `,
+                });
+              }
+            }
+          } catch (e) {
+            console.error("[email] Error enviando notificacion:", e);
+          }
+        }
+
         return new Response(JSON.stringify(conversation), {
           status: 201,
           headers: { ...corsHeaders, "Content-Type": "application/json" },
@@ -2401,7 +2438,7 @@ out 1;`;
         const conversation = await prisma.conversation.findUnique({
           where: { id: conversationId },
           include: {
-            Professional: { select: { nombre: true, apellido: true, slug: true, foto: true, oficios: true, clerkUserId: true } },
+            Professional: { select: { nombre: true, apellido: true, slug: true, foto: true, oficios: true, clerkUserId: true, whatsapp: true } },
             Message: { orderBy: { createdAt: "asc" } },
           },
         });

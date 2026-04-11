@@ -12,9 +12,11 @@
     "db:studio": "prisma studio"
   },
   "dependencies": {
+    "@clerk/backend": "^3.2.8",
     "@prisma/client": "^5",
     "cors": "^2.8.5",
     "pg": "^8.11.3",
+    "resend": "^6.10.0",
     "web-push": "^3.6.7"
   },
   "devDependencies": {
