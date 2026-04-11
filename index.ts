@@ -9,6 +9,75 @@ import { PrismaClient } from "@prisma/client";
 const prisma = new PrismaClient();
 const clerk = createClerkClient({ secretKey: process.env.CLERK_SECRET_KEY! });
 
+// ── Rate limiting ─────────────────────────────────────────────────────────────
+
+const rateLimitMap = new Map<string, { count: number; resetAt: number }>();
+const RATE_LIMIT = 60; // requests por ventana
+const RATE_WINDOW = 60_000; // 1 minuto en ms
+
+const strictRateLimitMap = new Map<string, { count: number; resetAt: number }>();
+const STRICT_RATE_LIMIT = 10; // requests por ventana para escrituras críticas
+
+function getRateLimitKey(req: Request): string {
+  return (
+    req.headers.get("x-forwarded-for")?.split(",")[0].trim() ||
+    req.headers.get("cf-connecting-ip") ||
+    "unknown"
+  );
+}
+
+function checkRateLimit(req: Request): boolean {
+  const key = getRateLimitKey(req);
+  const now = Date.now();
+  const entry = rateLimitMap.get(key);
+
+  if (!entry || now > entry.resetAt) {
+    rateLimitMap.set(key, { count: 1, resetAt: now + RATE_WINDOW });
+    return true;
+  }
+  if (entry.count >= RATE_LIMIT) return false;
+  entry.count++;
+  return true;
+}
+
+function checkStrictRateLimit(req: Request): boolean {
+  const key = getRateLimitKey(req);
+  const now = Date.now();
+  const entry = strictRateLimitMap.get(key);
+
+  if (!entry || now > entry.resetAt) {
+    strictRateLimitMap.set(key, { count: 1, resetAt: now + RATE_WINDOW });
+    return true;
+  }
+  if (entry.count >= STRICT_RATE_LIMIT) return false;
+  entry.count++;
+  return true;
+}
+
+// Limpiar entradas viejas cada 5 minutos
+setInterval(() => {
+  const now = Date.now();
+  for (const [key, entry] of rateLimitMap.entries()) {
+    if (now > entry.resetAt) rateLimitMap.delete(key);
+  }
+  for (const [key, entry] of strictRateLimitMap.entries()) {
+    if (now > entry.resetAt) strictRateLimitMap.delete(key);
+  }
+}, 5 * 60_000);
+
+// ── Sanitización ──────────────────────────────────────────────────────────────
+
+function sanitizeText(input: unknown, maxLength = 1000): string {
+  if (typeof input !== "string") return "";
+  return input
+    .trim()
+    .slice(0, maxLength)
+    // Remover caracteres de control excepto newlines y tabs
+    .replace(/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/g, "")
+    // Remover secuencias que parecen SQL injection
+    .replace(/(['";])\s*(--|\/\*|DROP|DELETE|INSERT|UPDATE|SELECT|UNION|ALTER|CREATE|EXEC|EXECUTE)\s/gi, "");
+}
+
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
 async function verifyClerkToken(req: Request): Promise<string | null> {
@@ -185,6 +254,19 @@ const server = Bun.serve({
       return new Response(null, { headers: corsHeaders });
     }
 
+    // Rutas excluidas del rate limit (WebSocket y assets estáticos)
+    if (path !== "/ws" && !path.startsWith("/uploads/")) {
+      if (!checkRateLimit(req)) {
+        return new Response(
+          JSON.stringify({ error: "Demasiadas solicitudes. Intentá en un momento." }),
+          {
+            status: 429,
+            headers: { ...corsHeaders, "Content-Type": "application/json", "Retry-After": "60" },
+          },
+        );
+      }
+    }
+
     // WebSocket upgrade — /ws?conversationId=xxx&token=yyy&senderType=client|professional
     if (path === "/ws") {
       const conversationId = url.searchParams.get("conversationId");
@@ -315,6 +397,9 @@ const server = Bun.serve({
 
       // POST /api/reports - Crear un nuevo reporte
       if (path === "/api/reports" && method === "POST") {
+        if (!checkStrictRateLimit(req)) {
+          return new Response(JSON.stringify({ error: "Demasiadas solicitudes. Intentá en un momento." }), { status: 429, headers: { ...corsHeaders, "Content-Type": "application/json", "Retry-After": "60" } });
+        }
         const contentType = req.headers.get("content-type") || "";
 
         let body: any;
@@ -362,7 +447,13 @@ const server = Bun.serve({
           }
         } else {
           // Manejar JSON (sin imagen o con base64 - retrocompatibilidad)
+          const contentLength = parseInt(req.headers.get("content-length") || "0");
+          if (contentLength > 10 * 1024 * 1024) {
+            return new Response(JSON.stringify({ error: "Payload demasiado grande" }), { status: 413, headers: corsHeaders });
+          }
           body = await req.json();
+          body.description = sanitizeText(body.description, 1000);
+          body.category = sanitizeText(body.category, 100);
           if (body.photo) {
             photoPaths = [body.photo];
           }
@@ -2003,10 +2094,19 @@ out 1;`;
 
       // POST /api/professionals/:slug/reviews — agregar opinión pública
       if (path.match(/^\/api\/professionals\/[^/]+\/reviews$/) && method === "POST") {
+        if (!checkStrictRateLimit(req)) {
+          return new Response(JSON.stringify({ error: "Demasiadas solicitudes. Intentá en un momento." }), { status: 429, headers: { ...corsHeaders, "Content-Type": "application/json", "Retry-After": "60" } });
+        }
         const slug = path.split("/")[3];
         const pro = await prisma.professional.findUnique({ where: { slug } });
         if (!pro) return new Response(JSON.stringify({ error: "No encontrado" }), { status: 404, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+        const contentLength = parseInt(req.headers.get("content-length") || "0");
+        if (contentLength > 10 * 1024 * 1024) {
+          return new Response(JSON.stringify({ error: "Payload demasiado grande" }), { status: 413, headers: corsHeaders });
+        }
         const body = await req.json();
+        body.comment = sanitizeText(body.comment, 1000);
+        body.reviewerName = sanitizeText(body.reviewerName, 60);
         const { score, comment, reviewerName } = body;
         if (!score || !comment || comment.trim().length < 10) {
           return new Response(JSON.stringify({ error: "Datos inválidos" }), { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } });
@@ -2072,11 +2172,22 @@ out 1;`;
 
       // POST /api/professionals — crear perfil (requiere auth)
       if (path === "/api/professionals" && method === "POST") {
+        if (!checkStrictRateLimit(req)) {
+          return new Response(JSON.stringify({ error: "Demasiadas solicitudes. Intentá en un momento." }), { status: 429, headers: { ...corsHeaders, "Content-Type": "application/json", "Retry-After": "60" } });
+        }
         const clerkUserId = await verifyClerkToken(req);
         if (!clerkUserId) return new Response(JSON.stringify({ error: "No autorizado" }), { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } });
         const existing = await prisma.professional.findUnique({ where: { clerkUserId } });
         if (existing) return new Response(JSON.stringify({ error: "Ya tenés un perfil creado" }), { status: 409, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+        const contentLength = parseInt(req.headers.get("content-length") || "0");
+        if (contentLength > 10 * 1024 * 1024) {
+          return new Response(JSON.stringify({ error: "Payload demasiado grande" }), { status: 413, headers: corsHeaders });
+        }
         const body = await req.json();
+        body.nombre = sanitizeText(body.nombre, 60);
+        body.apellido = sanitizeText(body.apellido, 60);
+        body.descripcion = sanitizeText(body.descripcion, 500);
+        body.barrio = sanitizeText(body.barrio, 100);
         const { nombre, apellido, oficios, descripcion, barrio, telefono, whatsapp } = body;
         if (!nombre || !apellido || !oficios?.length || !barrio) {
           return new Response(JSON.stringify({ error: "Faltan campos obligatorios" }), { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } });
@@ -2182,7 +2293,15 @@ out 1;`;
 
       // POST /api/conversations — cliente inicia contacto
       if (path === "/api/conversations" && method === "POST") {
+        if (!checkStrictRateLimit(req)) {
+          return new Response(JSON.stringify({ error: "Demasiadas solicitudes. Intentá en un momento." }), { status: 429, headers: { ...corsHeaders, "Content-Type": "application/json", "Retry-After": "60" } });
+        }
+        const contentLength = parseInt(req.headers.get("content-length") || "0");
+        if (contentLength > 10 * 1024 * 1024) {
+          return new Response(JSON.stringify({ error: "Payload demasiado grande" }), { status: 413, headers: corsHeaders });
+        }
         const body = await req.json();
+        body.firstMessage = sanitizeText(body.firstMessage, 500);
         const { professionalId, clientToken, firstMessage } = body;
         if (!professionalId || !clientToken || !firstMessage) {
           return new Response(JSON.stringify({ error: "Faltan campos obligatorios" }), { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } });
@@ -2409,7 +2528,13 @@ out 1;`;
 
       // POST /api/clasificados — crear aviso
       if (path === "/api/clasificados" && method === "POST") {
+        const contentLength = parseInt(req.headers.get("content-length") || "0");
+        if (contentLength > 10 * 1024 * 1024) {
+          return new Response(JSON.stringify({ error: "Payload demasiado grande" }), { status: 413, headers: corsHeaders });
+        }
         const body = await req.json();
+        body.titulo = sanitizeText(body.titulo, 100);
+        body.descripcion = sanitizeText(body.descripcion, 1000);
         const { titulo, descripcion, precio, categoria, barrio, clientToken } = body;
         if (!titulo || !descripcion || !categoria || !barrio || !clientToken) {
           return new Response(JSON.stringify({ error: "Faltan campos obligatorios" }), { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } });
