@@ -270,6 +270,14 @@ const server = Bun.serve({
       }
     }
 
+    // Health check
+    if (path === "/health") {
+      return new Response(JSON.stringify({ status: "ok" }), {
+        status: 200,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
     // WebSocket upgrade — /ws?conversationId=xxx&token=yyy&senderType=client|professional
     if (path === "/ws") {
       const conversationId = url.searchParams.get("conversationId");
