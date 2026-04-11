@@ -271,7 +271,7 @@ const server = Bun.serve({
     }
 
     // Health check
-    if (path === "/health") {
+    if (path === "/api/health") {
       return new Response(JSON.stringify({ status: "ok" }), {
         status: 200,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
