@@ -2017,7 +2017,6 @@ out 1;`;
 
         const review = await prisma.publicReview.create({
           data: {
-            id: crypto.randomUUID(),
             professionalId: pro.id,
             clerkUserId,
             reviewerName: reviewerName?.trim() || "Vecino anónimo",
@@ -2084,7 +2083,7 @@ out 1;`;
         }
         const slug = generateSlug(nombre, apellido, oficios);
         const professional = await prisma.professional.create({
-          data: { id: crypto.randomUUID(), clerkUserId, nombre, apellido, slug, oficios, descripcion, barrio, telefono, whatsapp, updatedAt: new Date() },
+          data: { clerkUserId, nombre, apellido, slug, oficios, descripcion, barrio, telefono, whatsapp, updatedAt: new Date() },
         });
         return new Response(JSON.stringify(professional), {
           status: 201,
@@ -2156,11 +2155,11 @@ out 1;`;
         if (!professionalId) return new Response(JSON.stringify({ error: "Falta professionalId" }), { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } });
         let user = await prisma.user.findUnique({ where: { clerkUserId } });
         if (!user) {
-          user = await prisma.user.create({ data: { id: crypto.randomUUID(), clerkUserId, updatedAt: new Date() } });
+          user = await prisma.user.create({ data: { clerkUserId, updatedAt: new Date() } });
         }
         const fav = await prisma.userFavorite.upsert({
           where: { userId_professionalId: { userId: user.id, professionalId } },
-          create: { id: crypto.randomUUID(), userId: user.id, professionalId },
+          create: { userId: user.id, professionalId },
           update: {},
         });
         return new Response(JSON.stringify(fav), { status: 201, headers: { ...corsHeaders, "Content-Type": "application/json" } });
@@ -2190,11 +2189,10 @@ out 1;`;
         }
         const conversation = await prisma.conversation.create({
           data: {
-            id: crypto.randomUUID(),
             professionalId,
             clientToken,
             updatedAt: new Date(),
-            Message: { create: { id: crypto.randomUUID(), senderType: "client", content: firstMessage } },
+            Message: { create: { senderType: "client", content: firstMessage } },
           },
           include: { Message: true },
         });
@@ -2368,7 +2366,6 @@ out 1;`;
         } else {
           rating = await prisma.rating.create({
             data: {
-              id: crypto.randomUUID(),
               conversationId,
               professionalId: conversation.professionalId,
               clientToken: conversation.clientToken,
@@ -2504,7 +2501,7 @@ out 1;`;
       if (!content?.trim()) return;
 
       const message = await prisma.message.create({
-        data: { id: crypto.randomUUID(), conversationId, senderType, content: content.trim() },
+        data: { conversationId, senderType, content: content.trim() },
       });
 
       await prisma.conversation.update({

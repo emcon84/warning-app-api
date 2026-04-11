@@ -1,6 +1,3 @@
-// This is your Prisma schema file,
-// learn more about it in the docs: https://pris.ly/d/prisma-schema
-
 generator client {
   provider = "prisma-client-js"
 }
@@ -19,10 +16,10 @@ model Report {
   barrio      String
   direccion   String
   photo       String?
-  photos      String[]  @default([])
-  isUrgent    Boolean  @default(false)
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
+  isUrgent    Boolean  @default(false)
+  photos      String[] @default([])
 
   @@index([category])
   @@index([createdAt])
@@ -30,55 +27,77 @@ model Report {
   @@index([isUrgent])
 }
 
-model Doctor {
-  id             String          @id @default(cuid())
-  nombre         String
-  especialidad   String
-  direccion      String
-  barrio         String          @default("")
-  ciudad         String          @default("Reconquista")
-  telefono       String?
-  whatsapp       String?
-  lat            Float
-  lng            Float
-  obrasSociales  String[]        @default([])
-  iapos          Boolean         @default(false)
-  activo         Boolean         @default(true)
-  confirmaciones       Confirmacion[]
-  turnosDisponibilidad TurnoDisponibilidad[]
-  createdAt      DateTime        @default(now())
-  updatedAt      DateTime        @updatedAt
+model Clasificado {
+  id          String   @id @default(cuid())
+  titulo      String
+  descripcion String
+  precio      Float?
+  categoria   String
+  barrio      String
+  fotos       String[] @default([])
+  clientToken String
+  activo      Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime
+  expiresAt   DateTime
 
-  @@index([especialidad])
-  @@index([ciudad])
+  @@index([barrio])
+  @@index([categoria])
+  @@index([clientToken])
+  @@index([expiresAt])
 }
 
 model Confirmacion {
   id         String   @id @default(cuid())
   doctorId   String
-  doctor     Doctor   @relation(fields: [doctorId], references: [id], onDelete: Cascade)
   obraSocial String
   acepta     Boolean
   createdAt  DateTime @default(now())
+  Doctor     Doctor   @relation(fields: [doctorId], references: [id], onDelete: Cascade)
 
   @@index([doctorId])
   @@index([obraSocial])
 }
 
-model TurnoDisponibilidad {
-  id          String   @id @default(cuid())
-  doctorId    String
-  doctor      Doctor   @relation(fields: [doctorId], references: [id], onDelete: Cascade)
-  dias        String[]
-  horario     String
-  tipoTurno   String
-  obraSocial  String   @default("Todas")
-  nota        String?
-  createdAt   DateTime @default(now())
-  expiresAt   DateTime
+model Conversation {
+  id             String       @id @default(cuid())
+  professionalId String
+  clientToken    String
+  status         String       @default("open")
+  agreedAt       DateTime?
+  completedAt    DateTime?
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime
+  Professional   Professional @relation(fields: [professionalId], references: [id], onDelete: Cascade)
+  Message        Message[]
+  Rating         Rating?
 
-  @@index([doctorId])
-  @@index([expiresAt])
+  @@index([clientToken])
+  @@index([professionalId])
+  @@index([status])
+}
+
+model Doctor {
+  id                  String                @id @default(cuid())
+  nombre              String
+  especialidad        String
+  direccion           String
+  barrio              String                @default("")
+  ciudad              String                @default("Reconquista")
+  telefono            String?
+  whatsapp            String?
+  lat                 Float
+  lng                 Float
+  obrasSociales       String[]              @default([])
+  activo              Boolean               @default(true)
+  createdAt           DateTime              @default(now())
+  updatedAt           DateTime
+  iapos               Boolean               @default(false)
+  Confirmacion        Confirmacion[]
+  TurnoDisponibilidad TurnoDisponibilidad[]
+
+  @@index([ciudad])
+  @@index([especialidad])
 }
 
 model Farmacia {
@@ -99,16 +118,160 @@ model IaposProvider {
   nombre    String
   direccion String   @default("")
   telefono  String   @default("")
-  updatedAt DateTime @updatedAt
+  updatedAt DateTime
 
   @@index([nombre])
 }
 
+model Message {
+  id             String       @id @default(cuid())
+  conversationId String
+  senderType     String
+  content        String
+  read           Boolean      @default(false)
+  createdAt      DateTime     @default(now())
+  Conversation   Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+
+  @@index([conversationId])
+  @@index([createdAt])
+}
+
+model Offer {
+  id            String    @id @default(cuid())
+  supermarketId String
+  description   String
+  price         String?   @default("")
+  photo         String?
+  validUntil    DateTime? @db.Date
+  createdAt     DateTime? @default(now()) @db.Timestamp(6)
+}
+
+model PageView {
+  id        String    @id @default(cuid())
+  sessionId String
+  section   String
+  createdAt DateTime? @default(now()) @db.Timestamp(6)
+
+  @@index([createdAt])
+  @@index([sessionId])
+}
+
+model Professional {
+  id           String         @id @default(cuid())
+  clerkUserId  String         @unique
+  nombre       String
+  apellido     String
+  slug         String         @unique
+  oficios      String[]
+  descripcion  String?
+  barrio       String
+  telefono     String?
+  whatsapp     String?
+  foto         String?
+  fotos        String[]       @default([])
+  disponible   Boolean        @default(true)
+  activo       Boolean        @default(true)
+  ratingAvg    Float          @default(0)
+  ratingCount  Int            @default(0)
+  createdAt    DateTime       @default(now())
+  updatedAt    DateTime
+  Conversation  Conversation[]
+  Rating        Rating[]
+  PublicReview  PublicReview[]
+  UserFavorite  UserFavorite[]
+
+  @@index([barrio])
+  @@index([disponible])
+  @@index([oficios])
+  @@index([ratingAvg])
+}
+
 model PushSubscription {
-  id        String   @id @default(cuid())
-  endpoint  String   @unique
-  p256dh    String
-  auth      String
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  id          String   @id @default(cuid())
+  endpoint    String   @unique
+  p256dh      String
+  auth        String
+  clerkUserId String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime
+
+  @@index([clerkUserId])
+}
+
+model Rating {
+  id              String       @id @default(cuid())
+  conversationId  String       @unique
+  professionalId  String
+  clientToken     String
+  scoreByClient   Float?
+  commentByClient String?
+  scoreByPro      Float?
+  commentByPro    String?
+  createdAt       DateTime     @default(now())
+  Conversation    Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  Professional    Professional @relation(fields: [professionalId], references: [id], onDelete: Cascade)
+
+  @@index([clientToken])
+  @@index([professionalId])
+}
+
+model Supermarket {
+  id        String    @id @default(cuid())
+  name      String
+  address   String?   @default("")
+  lat       Float?    @default(-29.15)
+  lng       Float?    @default(-59.65)
+  logo      String?
+  createdAt DateTime? @default(now()) @db.Timestamp(6)
+}
+
+model TurnoDisponibilidad {
+  id         String   @id @default(cuid())
+  doctorId   String
+  dias       String[]
+  horario    String
+  tipoTurno  String
+  obraSocial String   @default("Todas")
+  nota       String?
+  createdAt  DateTime @default(now())
+  expiresAt  DateTime
+  Doctor     Doctor   @relation(fields: [doctorId], references: [id], onDelete: Cascade)
+
+  @@index([doctorId])
+  @@index([expiresAt])
+}
+
+model User {
+  id           String         @id @default(cuid())
+  clerkUserId  String         @unique
+  nombre       String?
+  createdAt    DateTime       @default(now())
+  updatedAt    DateTime
+  UserFavorite UserFavorite[]
+}
+
+model UserFavorite {
+  id             String       @id @default(cuid())
+  userId         String
+  professionalId String
+  createdAt      DateTime     @default(now())
+  User           User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  Professional   Professional @relation(fields: [professionalId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, professionalId])
+  @@index([userId])
+}
+
+model PublicReview {
+  id             String       @id @default(cuid())
+  professionalId String
+  professional   Professional @relation(fields: [professionalId], references: [id], onDelete: Cascade)
+  clerkUserId    String?
+  reviewerName   String       @default("Vecino anónimo")
+  score          Float
+  comment        String
+  createdAt      DateTime     @default(now())
+
+  @@index([professionalId])
+  @@index([createdAt])
 }
