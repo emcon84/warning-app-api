@@ -2654,16 +2654,31 @@ out 1;`;
         where: { conversationId, senderType: otherSender, read: false },
         data: { read: true },
       });
+
+      // Notificar al otro lado que sus mensajes fueron leídos
+      server.publish(
+        `conversation:${conversationId}`,
+        JSON.stringify({ type: "read", senderType: otherSender }),
+      );
     },
 
     async message(ws, raw) {
       const { conversationId, senderType } = ws.data as { conversationId: string; senderType: string };
 
-      let parsed: { content: string };
+      let parsed: { content?: string; type?: string };
       try {
         parsed = JSON.parse(raw as string);
       } catch {
         ws.send(JSON.stringify({ error: "Mensaje inválido" }));
+        return;
+      }
+
+      // Typing event — broadcast sin guardar
+      if (parsed.type === "typing") {
+        server.publish(
+          `conversation:${conversationId}`,
+          JSON.stringify({ type: "typing", senderType }),
+        );
         return;
       }
 
