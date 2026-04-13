@@ -267,35 +267,40 @@ async function syncToDatabase(records: IaposRecord[]): Promise<void> {
   console.log(`✓ ${saved} registros en IaposProvider`);
 }
 
-function extractApellidoFromDoctorName(nombreDoctor: string): string {
-  // Eliminar prefijos: Dr., Dra., Dr , Dra
-  let name = nombreDoctor
-    .replace(/^(Dr[a]?\.|Dr[a]?\s)/i, "")
+/** Limpia el nombre del doctor: quita prefijos, sufijos, iniciales */
+function cleanDoctorName(nombreDoctor: string): string {
+  return normalizeNombre(nombreDoctor)
+    .replace(/^(DRA?\.|KLGO?A?\.|LIC\.|PROF\.)\s*/i, "")
+    .replace(/\s*\([^)]*\)/g, "")
     .trim();
+}
 
-  // Normalizar
-  name = normalizeNombre(name);
+/**
+ * Extrae las "palabras significativas" (más de 2 chars, no iniciales) de un nombre.
+ */
+function significantWords(name: string): string[] {
+  return name.split(/\s+/).filter(p => p.length > 2 && !p.endsWith("."));
+}
 
-  // Extraer apellido: el último o penúltimo token (puede haber iniciales medias)
-  // Ej: "Pedro Eduardo Josa" → apellido = "JOSA"
-  // Ej: "Marcelo G. Ramseyer" → apellido = "RAMSEYER"
-  // Ej: "Marcelo A. Sartor (H)" → apellido = "SARTOR"
-  // Limpiamos sufijos entre paréntesis
-  name = name.replace(/\s*\([^)]*\)/g, "").trim();
-
-  const parts = name.split(/\s+/);
-  // Tomar las últimas 1 o 2 partes (para apellidos compuestos)
-  // Pero filtrar iniciales (palabras de 1-2 chars con punto)
-  const significantParts = parts.filter(p => p.length > 2 && !p.endsWith('.'));
-
-  if (significantParts.length === 0) return parts[parts.length - 1] ?? "";
-  return significantParts[significantParts.length - 1];
+/**
+ * Dado el nombre limpio del doctor (ej "JOSEFINA DALLA COSTA"),
+ * devuelve todas las combinaciones de apellido posibles probando
+ * las últimas 1, 2 y 3 palabras significativas.
+ *
+ * Ej: ["COSTA", "DALLA COSTA"]
+ */
+function apellidoCandidates(cleanName: string): string[] {
+  const words = significantWords(cleanName);
+  const candidates: string[] = [];
+  for (let n = 1; n <= Math.min(3, words.length); n++) {
+    candidates.push(words.slice(-n).join(" "));
+  }
+  return candidates;
 }
 
 async function markDoctorsWithIapos(records: IaposRecord[]): Promise<void> {
   console.log("\n→ Cruzando con tabla Doctor...");
 
-  // Obtener todos los doctores activos
   const doctors = await prisma.doctor.findMany({
     where: { activo: true },
     select: { id: true, nombre: true },
@@ -303,67 +308,82 @@ async function markDoctorsWithIapos(records: IaposRecord[]): Promise<void> {
 
   console.log(`   ${doctors.length} doctores en la base de datos`);
 
-  // Construir mapa: apellido IAPOS → lista de registros
-  // Los nombres IAPOS son "APELLIDO NOMBRE"
+  // Índice IAPOS: apellidoNorm → lista de registros
+  // El apellido IAPOS (rec.apellido) ya viene separado del nombre
   const iaposByApellido = new Map<string, IaposRecord[]>();
   for (const rec of records) {
     const apellido = normalizeNombre(rec.apellido);
-    if (!iaposByApellido.has(apellido)) {
-      iaposByApellido.set(apellido, []);
-    }
+    if (!iaposByApellido.has(apellido)) iaposByApellido.set(apellido, []);
     iaposByApellido.get(apellido)!.push(rec);
   }
 
   let marcados = 0;
-  let candidatos: string[] = [];
-  let noMatch: string[] = [];
+  const marcadosList: string[] = [];
+  const noMatchList: string[] = [];
 
   for (const doctor of doctors) {
-    // El nombre del doctor suele ser "Nombre Apellido" → extraemos apellido
-    const apellidoDoctor = extractApellidoFromDoctorName(doctor.nombre);
+    const cleanName = cleanDoctorName(doctor.nombre);
+    const apCandidates = apellidoCandidates(cleanName);
 
-    const iaposMatches = iaposByApellido.get(apellidoDoctor);
-    if (!iaposMatches) {
-      noMatch.push(doctor.nombre);
+    let matchedApellido: string | null = null;
+    let matchedRecords: IaposRecord[] = [];
+
+    // Probar cada candidato de apellido (1, 2 o 3 palabras) de más largo a más corto
+    for (const candidate of apCandidates.reverse()) {
+      const found = iaposByApellido.get(candidate);
+      if (found) {
+        matchedApellido = candidate;
+        matchedRecords = found;
+        break;
+      }
+    }
+
+    if (!matchedApellido) {
+      noMatchList.push(doctor.nombre);
       continue;
     }
 
-    // Con el apellido en común, validar que al menos una parte del nombre coincida
-    const nombreDoctorNorm = normalizeNombre(
-      doctor.nombre
-        .replace(/^(Dr[a]?\.|Dr[a]?\s)/i, "")
-        .replace(/\s*\([^)]*\)/g, "")
-    );
-    const partesDoctor = nombreDoctorNorm.split(/\s+/).filter(p => p.length > 2 && !p.endsWith('.'));
+    // Las partes significativas del nombre del doctor (excluye el apellido)
+    const cleanWords = significantWords(cleanName);
+    const apellidoWords = matchedApellido.split(" ");
+    // Palabras que no son parte del apellido → son el nombre
+    const doctorFirstNameWords = cleanWords.filter(w => !apellidoWords.includes(w));
 
-    const match = iaposMatches.some((rec) => {
-      const iaposNombreParts = normalizeNombre(rec.nombre).split(/\s+/);
-      // Al menos una parte del nombre debe coincidir
-      return iaposNombreParts.some((part) => partesDoctor.includes(part));
+    // Verificar que al menos 1 parte del nombre del doctor coincide
+    // con alguna parte del nombre IAPOS
+    const matched = matchedRecords.some((rec) => {
+      const iaposNombreWords = significantWords(normalizeNombre(rec.nombre));
+      return doctorFirstNameWords.some(dw =>
+        // Match exacto o uno empieza con el otro (Nancy ≈ NANCI, Grisela ≈ GRISELDA)
+        iaposNombreWords.some(iw =>
+          iw === dw ||
+          (iw.length >= 4 && dw.length >= 4 && (iw.startsWith(dw) || dw.startsWith(iw)))
+        )
+      );
     });
 
-    if (match) {
-      candidatos.push(`${doctor.nombre} (apellido: ${apellidoDoctor})`);
+    if (matched) {
+      marcadosList.push(`${doctor.nombre} (apellido: ${matchedApellido})`);
       await prisma.doctor.update({
         where: { id: doctor.id },
         data: { iapos: true },
       });
       marcados++;
     } else {
-      noMatch.push(
-        `${doctor.nombre} [apellido match: ${iaposMatches.map(r => r.nombre).join(", ")}]`
+      noMatchList.push(
+        `${doctor.nombre} [apellido OK, nombre distinto: ${matchedRecords.map(r => r.nombre).join(", ")}]`
       );
     }
   }
 
   console.log(`✓ ${marcados} doctores marcados como iapos=true`);
-  if (candidatos.length > 0) {
-    console.log("  Doctores marcados:");
-    candidatos.forEach((c) => console.log(`    ✓ ${c}`));
+  if (marcadosList.length > 0) {
+    console.log("  Marcados:");
+    marcadosList.forEach((c) => console.log(`    ✓ ${c}`));
   }
-  if (noMatch.length > 0 && noMatch.length <= 30) {
+  if (noMatchList.length > 0) {
     console.log("\n  Sin match:");
-    noMatch.forEach((c) => console.log(`    ✗ ${c}`));
+    noMatchList.forEach((c) => console.log(`    ✗ ${c}`));
   }
 }
 
