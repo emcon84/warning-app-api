@@ -2682,6 +2682,20 @@ out 1;`;
         return;
       }
 
+      // Mark read event — marca mensajes del otro lado como leídos
+      if (parsed.type === "mark_read") {
+        const otherSender = senderType === "client" ? "professional" : "client";
+        await prisma.message.updateMany({
+          where: { conversationId, senderType: otherSender, read: false },
+          data: { read: true },
+        });
+        server.publish(
+          `conversation:${conversationId}`,
+          JSON.stringify({ type: "read", senderType: otherSender }),
+        );
+        return;
+      }
+
       const { content } = parsed;
       if (!content?.trim()) return;
 
