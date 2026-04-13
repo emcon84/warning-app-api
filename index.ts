@@ -2026,7 +2026,9 @@ out 1;`;
         if (!clerkUserId) return new Response(JSON.stringify({ error: "No autorizado" }), { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } });
         const admins = (process.env.ADMIN_CLERK_IDS || "").split(",").map(s => s.trim()).filter(Boolean);
         if (!admins.includes(clerkUserId)) return new Response(JSON.stringify({ error: "Acceso denegado" }), { status: 403, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+        const onlyReported = url.searchParams.get("reported") === "true";
         const reviews = await prisma.publicReview.findMany({
+          where: onlyReported ? { reported: true } : undefined,
           orderBy: { createdAt: "desc" },
           take: 100,
           include: { professional: { select: { nombre: true, apellido: true, slug: true } } },
@@ -2095,13 +2097,13 @@ out 1;`;
         });
       }
 
-      // GET /api/professionals/:slug/reviews — opiniones públicas
+      // GET /api/professionals/:slug/reviews — opiniones públicas (solo no reportadas)
       if (path.match(/^\/api\/professionals\/[^/]+\/reviews$/) && method === "GET") {
         const slug = path.split("/")[3];
         const pro = await prisma.professional.findUnique({ where: { slug } });
         if (!pro) return new Response(JSON.stringify({ error: "No encontrado" }), { status: 404, headers: { ...corsHeaders, "Content-Type": "application/json" } });
         const reviews = await prisma.publicReview.findMany({
-          where: { professionalId: pro.id },
+          where: { professionalId: pro.id, reported: false },
           orderBy: { createdAt: "desc" },
         });
         return new Response(JSON.stringify(reviews), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
@@ -2119,16 +2121,42 @@ out 1;`;
         if (contentLength > 10 * 1024 * 1024) {
           return new Response(JSON.stringify({ error: "Payload demasiado grande" }), { status: 413, headers: corsHeaders });
         }
+
+        // Requerir autenticación
+        let clerkUserId: string | null = null;
+        try { clerkUserId = await verifyClerkToken(req); } catch {}
+        if (!clerkUserId) {
+          return new Response(JSON.stringify({ error: "Tenés que iniciar sesión para dejar una opinión" }), { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+        }
+
         const body = await req.json();
         body.comment = sanitizeText(body.comment, 1000);
         body.reviewerName = sanitizeText(body.reviewerName, 60);
-        const { score, comment, reviewerName } = body;
+        const { score, comment, reviewerName, clientToken } = body;
         if (!score || !comment || comment.trim().length < 10) {
           return new Response(JSON.stringify({ error: "Datos inválidos" }), { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } });
         }
-        // Opcional: extraer clerkUserId si está logueado
-        let clerkUserId: string | null = null;
-        try { clerkUserId = await verifyClerkToken(req); } catch {}
+
+        // Verificar que el usuario tuvo una conversación con este profesional
+        // Cuando está logueado, clientToken === clerkUserId en el chat
+        const tokenCandidates = [clerkUserId, clientToken].filter(Boolean);
+        const conversation = await prisma.conversation.findFirst({
+          where: {
+            professionalId: pro.id,
+            clientToken: { in: tokenCandidates as string[] },
+          },
+        });
+        if (!conversation) {
+          return new Response(JSON.stringify({ error: "Primero tenés que contactar al profesional para poder dejar una opinión" }), { status: 403, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+        }
+
+        // Una sola opinión por usuario por profesional
+        const existing = await prisma.publicReview.findFirst({
+          where: { professionalId: pro.id, clerkUserId },
+        });
+        if (existing) {
+          return new Response(JSON.stringify({ error: "Ya dejaste una opinión para este profesional" }), { status: 409, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+        }
 
         const review = await prisma.publicReview.create({
           data: {
@@ -2141,7 +2169,7 @@ out 1;`;
         });
         // Recalcular ratingAvg y ratingCount
         const agg = await prisma.publicReview.aggregate({
-          where: { professionalId: pro.id },
+          where: { professionalId: pro.id, reported: false },
           _avg: { score: true },
           _count: { score: true },
         });
@@ -2153,6 +2181,27 @@ out 1;`;
           },
         });
         return new Response(JSON.stringify(review), { status: 201, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      }
+
+      // POST /api/professionals/:slug/reviews/:reviewId/report — reportar opinión abusiva
+      if (path.match(/^\/api\/professionals\/[^/]+\/reviews\/[^/]+\/report$/) && method === "POST") {
+        let clerkUserId: string | null = null;
+        try { clerkUserId = await verifyClerkToken(req); } catch {}
+        if (!clerkUserId) {
+          return new Response(JSON.stringify({ error: "No autorizado" }), { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+        }
+        const parts = path.split("/");
+        const reviewId = parts[5];
+        const review = await prisma.publicReview.findUnique({ where: { id: reviewId } });
+        if (!review) return new Response(JSON.stringify({ error: "No encontrada" }), { status: 404, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+        if (review.reported) {
+          return new Response(JSON.stringify({ ok: true }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+        }
+        await prisma.publicReview.update({
+          where: { id: reviewId },
+          data: { reported: true, reportedAt: new Date() },
+        });
+        return new Response(JSON.stringify({ ok: true }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
       }
 
       // GET /api/professionals/id/:id — perfil por ID

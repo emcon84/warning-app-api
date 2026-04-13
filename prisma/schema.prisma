@@ -268,8 +268,11 @@ model PublicReview {
   reviewerName   String       @default("Vecino anónimo")
   score          Float
   comment        String
+  reported       Boolean      @default(false)
+  reportedAt     DateTime?
   createdAt      DateTime     @default(now())
 
   @@index([professionalId])
   @@index([createdAt])
+  @@index([clerkUserId])
 }
