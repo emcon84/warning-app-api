@@ -2713,6 +2713,46 @@ out 1;`;
         `conversation:${conversationId}`,
         JSON.stringify({ type: "message", data: message }),
       );
+
+      // Push notification al profesional cuando el cliente manda un mensaje
+      if (senderType === "client") {
+        try {
+          const conv = await prisma.conversation.findUnique({
+            where: { id: conversationId },
+            select: { professionalId: true },
+          });
+          if (conv) {
+            const pro = await prisma.professional.findUnique({
+              where: { id: conv.professionalId },
+              select: { clerkUserId: true },
+            });
+            if (pro?.clerkUserId) {
+              const subs = await prisma.pushSubscription.findMany({
+                where: { clerkUserId: pro.clerkUserId },
+              });
+              const preview = content.trim().length > 60
+                ? content.trim().slice(0, 60) + "…"
+                : content.trim();
+              await Promise.allSettled(subs.map(sub =>
+                webPush.sendNotification(
+                  { endpoint: sub.endpoint, keys: { p256dh: sub.p256dh, auth: sub.auth } },
+                  JSON.stringify({
+                    title: "Nuevo mensaje",
+                    body: preview,
+                    url: `/chat/${conversationId}`,
+                    icon: "/icon-192x192.png",
+                    tag: `chat-${conversationId}`,
+                  })
+                ).catch(async (err: any) => {
+                  if (err.statusCode === 410) {
+                    await prisma.pushSubscription.delete({ where: { endpoint: sub.endpoint } });
+                  }
+                })
+              ));
+            }
+          }
+        } catch {}
+      }
     },
 
     close(ws) {
