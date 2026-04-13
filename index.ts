@@ -839,11 +839,15 @@ const server = Bun.serve({
         const especialidad = url.searchParams.get("especialidad");
         const obraSocial = url.searchParams.get("obraSocial");
         const ciudad = url.searchParams.get("ciudad");
+        const soloIapos = url.searchParams.get("iapos") === "true";
 
         let query = 'SELECT * FROM "Doctor" WHERE activo = true';
         const params: any[] = [];
         let paramCount = 1;
 
+        if (soloIapos) {
+          query += ` AND iapos = true`;
+        }
         if (especialidad) {
           query += ` AND especialidad = $${paramCount++}`;
           params.push(especialidad);

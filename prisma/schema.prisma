@@ -115,12 +115,10 @@ model Farmacia {
 
 model IaposProvider {
   id        String   @id @default(cuid())
-  nombre    String
+  nombre    String   @unique
   direccion String   @default("")
   telefono  String   @default("")
   updatedAt DateTime
-
-  @@index([nombre])
 }
 
 model Message {
