@@ -2366,7 +2366,7 @@ out 1;`;
         }
         const body = await req.json();
         body.firstMessage = sanitizeText(body.firstMessage, 500);
-        const { professionalId, clientToken, firstMessage } = body;
+        const { professionalId, clientToken, firstMessage, clientName } = body;
         if (!professionalId || !clientToken || !firstMessage) {
           return new Response(JSON.stringify({ error: "Faltan campos obligatorios" }), { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } });
         }
@@ -2374,6 +2374,7 @@ out 1;`;
           data: {
             professionalId,
             clientToken,
+            clientName: clientName ? sanitizeText(clientName, 80) : null,
             updatedAt: new Date(),
             Message: { create: { senderType: "client", content: firstMessage } },
           },

@@ -63,6 +63,7 @@ model Conversation {
   id             String       @id @default(cuid())
   professionalId String
   clientToken    String
+  clientName     String?
   status         String       @default("open")
   agreedAt       DateTime?
   completedAt    DateTime?
