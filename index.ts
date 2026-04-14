@@ -1972,6 +1972,58 @@ out 1;`;
         });
       }
 
+      // POST /api/ai/generate-description — genera descripcion de perfil con IA
+      if (path === "/api/ai/generate-description" && method === "POST") {
+        const clerkUserId = await verifyClerkToken(req);
+        if (!clerkUserId) return new Response(JSON.stringify({ error: "No autorizado" }), { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+
+        const { oficios, nombre, barrio, anios, zona } = await req.json() as {
+          oficios: string[];
+          nombre: string;
+          barrio: string;
+          anios?: string;
+          zona?: string;
+        };
+
+        if (!oficios?.length || !nombre || !barrio) {
+          return new Response(JSON.stringify({ error: "Faltan datos" }), { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+        }
+
+        const groqRes = await fetch("https://api.groq.com/openai/v1/chat/completions", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "Authorization": `Bearer ${process.env.GROQ_API_KEY}`,
+          },
+          body: JSON.stringify({
+            model: "llama-3.1-8b-instant",
+            max_tokens: 400,
+            messages: [{
+              role: "user",
+              content: `Escribi una descripción profesional en primera persona para ${nombre}, un trabajador de oficio en Reconquista, Santa Fe.
+
+Datos:
+- Oficios: ${oficios.join(", ")}
+- Barrio: ${barrio}
+${anios ? `- Años de experiencia: ${anios}` : ""}
+${zona ? `- Zonas donde trabaja: ${zona}` : ""}
+
+La descripción debe:
+- Estar en primera persona ("Soy...", "Me dedico a...")
+- Tener entre 60 y 150 palabras
+- Sonar natural y humana, no corporativa
+- Mencionar los oficios y la zona de trabajo
+- Transmitir confianza y profesionalismo
+- Devolvé SOLO la descripción, sin título, sin comillas, sin aclaraciones`,
+            }],
+          }),
+        });
+
+        const groqData = await groqRes.json() as { choices: { message: { content: string } }[] };
+        const text = groqData.choices?.[0]?.message?.content?.trim() ?? "";
+        return new Response(JSON.stringify({ descripcion: text }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      }
+
       // GET /api/admin/professionals — listar todos los profesionales (requiere auth)
       if (path === "/api/admin/professionals" && method === "GET") {
         const clerkUserId = await verifyClerkToken(req);
