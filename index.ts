@@ -24,6 +24,7 @@ const STRICT_RATE_LIMIT = 10; // requests por ventana para escrituras críticas
 function getRateLimitKey(req: Request): string {
   return (
     req.headers.get("x-forwarded-for")?.split(",")[0].trim() ||
+    req.headers.get("x-real-ip") ||
     req.headers.get("cf-connecting-ip") ||
     "unknown"
   );
@@ -257,8 +258,22 @@ const server = Bun.serve({
       return new Response(null, { headers: corsHeaders });
     }
 
-    // Rutas excluidas del rate limit (WebSocket y assets estáticos)
-    if (path !== "/ws" && !path.startsWith("/uploads/")) {
+    // Rutas excluidas del rate limit:
+    // - WebSocket y assets estáticos
+    // - GETs públicos de lectura (no necesitan protección, el SW los cachea)
+    const isPublicReadGet =
+      method === "GET" &&
+      (path === "/api/health" ||
+        path.startsWith("/api/reports") ||
+        path.startsWith("/api/doctors") ||
+        path.startsWith("/api/farmacias") ||
+        path.startsWith("/api/stats") ||
+        path.startsWith("/api/offers") ||
+        path.startsWith("/api/supermarkets") ||
+        path.startsWith("/api/profesionales") ||
+        path.startsWith("/api/comercios"));
+
+    if (!isPublicReadGet && path !== "/ws" && !path.startsWith("/uploads/")) {
       if (!checkRateLimit(req)) {
         return new Response(
           JSON.stringify({ error: "Demasiadas solicitudes. Intentá en un momento." }),
