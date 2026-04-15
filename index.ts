@@ -3061,19 +3061,22 @@ La descripción debe:
             where: { id: conversationId },
             select: { professionalId: true },
           });
+          if (!conv) { console.log("[push] conv not found:", conversationId); }
           if (conv) {
             const pro = await prisma.professional.findUnique({
               where: { id: conv.professionalId },
               select: { clerkUserId: true },
             });
+            if (!pro?.clerkUserId) { console.log("[push] pro has no clerkUserId:", conv.professionalId); }
             if (pro?.clerkUserId) {
               const subs = await prisma.pushSubscription.findMany({
                 where: { clerkUserId: pro.clerkUserId },
               });
+              console.log(`[push] sending to ${subs.length} subscriptions for ${pro.clerkUserId}`);
               const preview = content.trim().length > 60
                 ? content.trim().slice(0, 60) + "…"
                 : content.trim();
-              await Promise.allSettled(subs.map(sub =>
+              const results = await Promise.allSettled(subs.map(sub =>
                 webPush.sendNotification(
                   { endpoint: sub.endpoint, keys: { p256dh: sub.p256dh, auth: sub.auth } },
                   JSON.stringify({
@@ -3084,14 +3087,18 @@ La descripción debe:
                     tag: `chat-${conversationId}`,
                   })
                 ).catch(async (err: any) => {
+                  console.error("[push] sendNotification error:", err.statusCode, err.body ?? err.message);
                   if (err.statusCode === 410) {
                     await prisma.pushSubscription.delete({ where: { endpoint: sub.endpoint } });
                   }
                 })
               ));
+              console.log("[push] results:", results.map(r => r.status));
             }
           }
-        } catch {}
+        } catch (e) {
+          console.error("[push] unexpected error:", e);
+        }
       }
     },
 
