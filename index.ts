@@ -2024,6 +2024,222 @@ La descripción debe:
         return new Response(JSON.stringify({ descripcion: text }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
       }
 
+      // ═══════════════════════════════════════════════════════════════════
+      // COMERCIOS
+      // ═══════════════════════════════════════════════════════════════════
+
+      // POST /api/comercios — crear perfil de comercio (requiere auth)
+      if (path === "/api/comercios" && method === "POST") {
+        if (!checkStrictRateLimit(req)) {
+          return new Response(JSON.stringify({ error: "Demasiadas solicitudes. Intentá en un momento." }), { status: 429, headers: { ...corsHeaders, "Content-Type": "application/json", "Retry-After": "60" } });
+        }
+        const clerkUserId = await verifyClerkToken(req);
+        if (!clerkUserId) return new Response(JSON.stringify({ error: "No autorizado" }), { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+        const existing = await prisma.comercio.findUnique({ where: { clerkUserId } });
+        if (existing) return new Response(JSON.stringify({ error: "Ya tenés un perfil de comercio creado" }), { status: 409, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+        const formData = await req.formData();
+        const nombre = sanitizeText(formData.get("nombre") as string, 100);
+        const rubro = sanitizeText(formData.get("rubro") as string, 100);
+        const barrio = sanitizeText(formData.get("barrio") as string, 100);
+        const whatsapp = sanitizeText(formData.get("whatsapp") as string, 30);
+        const telefono = sanitizeText(formData.get("telefono") as string, 30) || undefined;
+        const direccion = sanitizeText(formData.get("direccion") as string, 200) || undefined;
+        const horario = sanitizeText(formData.get("horario") as string, 200) || undefined;
+        const descripcion = sanitizeText(formData.get("descripcion") as string, 500) || undefined;
+        if (!nombre || !rubro || !barrio || !whatsapp) {
+          return new Response(JSON.stringify({ error: "Faltan campos obligatorios: nombre, rubro, barrio, whatsapp" }), { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+        }
+        const slugBase = `${nombre}-${rubro}-${Math.random().toString(36).slice(2, 7)}`
+          .toLowerCase()
+          .normalize("NFD")
+          .replace(/[\u0300-\u036f]/g, "")
+          .replace(/[^a-z0-9]+/g, "-")
+          .replace(/^-|-$/g, "");
+        // foto principal
+        let fotoUrl: string | undefined;
+        const mainPhoto = formData.get("photo") as File | null;
+        if (mainPhoto && mainPhoto.size > 0) {
+          const ext = mainPhoto.name.split(".").pop()?.toLowerCase() || "jpg";
+          const filename = `comercio_${crypto.randomUUID()}.${ext}`;
+          await Bun.write(join(uploadsDir, filename), await mainPhoto.arrayBuffer());
+          fotoUrl = "/uploads/" + filename;
+        }
+        // galería
+        const fotos: string[] = [];
+        for (let i = 0; i < 10; i++) {
+          const f = formData.get(`photo${i}`) as File | null;
+          if (!f || f.size === 0) break;
+          const ext = f.name.split(".").pop()?.toLowerCase() || "jpg";
+          const filename = `comercio_${crypto.randomUUID()}.${ext}`;
+          await Bun.write(join(uploadsDir, filename), await f.arrayBuffer());
+          fotos.push("/uploads/" + filename);
+        }
+        const comercio = await prisma.comercio.create({
+          data: { clerkUserId, nombre, rubro, slug: slugBase, descripcion, direccion, barrio, whatsapp, telefono, horario, foto: fotoUrl, fotos },
+        });
+        return new Response(JSON.stringify(comercio), { status: 201, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      }
+
+      // GET /api/comercios — listar comercios activos (público)
+      if (path === "/api/comercios" && method === "GET") {
+        const barrio = url.searchParams.get("barrio") ?? undefined;
+        const rubro = url.searchParams.get("rubro") ?? undefined;
+        const comercios = await prisma.comercio.findMany({
+          where: {
+            activo: true,
+            ...(barrio ? { barrio: { contains: barrio, mode: "insensitive" } } : {}),
+            ...(rubro ? { rubro: { contains: rubro, mode: "insensitive" } } : {}),
+          },
+          select: { id: true, nombre: true, rubro: true, slug: true, barrio: true, foto: true, descripcion: true, activo: true, createdAt: true },
+          orderBy: { createdAt: "desc" },
+        });
+        return new Response(JSON.stringify(comercios), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      }
+
+      // GET /api/comercios/me — obtener mi comercio (requiere auth)
+      if (path === "/api/comercios/me" && method === "GET") {
+        const clerkUserId = await verifyClerkToken(req);
+        if (!clerkUserId) return new Response(JSON.stringify({ error: "No autorizado" }), { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+        const comercio = await prisma.comercio.findUnique({
+          where: { clerkUserId },
+          select: { id: true, nombre: true, rubro: true, slug: true, descripcion: true, direccion: true, barrio: true, whatsapp: true, telefono: true, horario: true, foto: true, fotos: true, activo: true, createdAt: true, updatedAt: true },
+        });
+        if (!comercio) return new Response(JSON.stringify({ error: "No tenés un comercio registrado" }), { status: 404, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+        return new Response(JSON.stringify(comercio), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      }
+
+      // PUT /api/comercios/me — actualizar mi comercio (requiere auth)
+      if (path === "/api/comercios/me" && method === "PUT") {
+        const clerkUserId = await verifyClerkToken(req);
+        if (!clerkUserId) return new Response(JSON.stringify({ error: "No autorizado" }), { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+        const comercioExistente = await prisma.comercio.findUnique({ where: { clerkUserId } });
+        if (!comercioExistente) return new Response(JSON.stringify({ error: "No tenés un comercio registrado" }), { status: 404, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+        const formData = await req.formData();
+        const updateData: Record<string, unknown> = {};
+        const nombre = formData.get("nombre") as string | null;
+        const rubro = formData.get("rubro") as string | null;
+        const barrio = formData.get("barrio") as string | null;
+        const whatsapp = formData.get("whatsapp") as string | null;
+        const telefono = formData.get("telefono") as string | null;
+        const direccion = formData.get("direccion") as string | null;
+        const horario = formData.get("horario") as string | null;
+        const descripcion = formData.get("descripcion") as string | null;
+        if (nombre) updateData.nombre = sanitizeText(nombre, 100);
+        if (rubro) updateData.rubro = sanitizeText(rubro, 100);
+        if (barrio) updateData.barrio = sanitizeText(barrio, 100);
+        if (whatsapp) updateData.whatsapp = sanitizeText(whatsapp, 30);
+        if (telefono !== null) updateData.telefono = sanitizeText(telefono, 30) || null;
+        if (direccion !== null) updateData.direccion = sanitizeText(direccion, 200) || null;
+        if (horario !== null) updateData.horario = sanitizeText(horario, 200) || null;
+        if (descripcion !== null) updateData.descripcion = sanitizeText(descripcion, 500) || null;
+        // foto principal
+        const mainPhoto = formData.get("photo") as File | null;
+        if (mainPhoto && mainPhoto.size > 0) {
+          const ext = mainPhoto.name.split(".").pop()?.toLowerCase() || "jpg";
+          const filename = `comercio_${crypto.randomUUID()}.${ext}`;
+          await Bun.write(join(uploadsDir, filename), await mainPhoto.arrayBuffer());
+          updateData.foto = "/uploads/" + filename;
+        }
+        // galería — agrega a las existentes
+        const nuevasFotos: string[] = [];
+        for (let i = 0; i < 10; i++) {
+          const f = formData.get(`photo${i}`) as File | null;
+          if (!f || f.size === 0) break;
+          const ext = f.name.split(".").pop()?.toLowerCase() || "jpg";
+          const filename = `comercio_${crypto.randomUUID()}.${ext}`;
+          await Bun.write(join(uploadsDir, filename), await f.arrayBuffer());
+          nuevasFotos.push("/uploads/" + filename);
+        }
+        if (nuevasFotos.length > 0) {
+          updateData.fotos = [...comercioExistente.fotos, ...nuevasFotos];
+        }
+        const comercio = await prisma.comercio.update({ where: { clerkUserId }, data: updateData });
+        return new Response(JSON.stringify(comercio), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      }
+
+      // POST /api/comercios/me/offers — crear oferta (requiere auth)
+      if (path === "/api/comercios/me/offers" && method === "POST") {
+        if (!checkStrictRateLimit(req)) {
+          return new Response(JSON.stringify({ error: "Demasiadas solicitudes. Intentá en un momento." }), { status: 429, headers: { ...corsHeaders, "Content-Type": "application/json", "Retry-After": "60" } });
+        }
+        const clerkUserId = await verifyClerkToken(req);
+        if (!clerkUserId) return new Response(JSON.stringify({ error: "No autorizado" }), { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+        const comercio = await prisma.comercio.findUnique({ where: { clerkUserId } });
+        if (!comercio) return new Response(JSON.stringify({ error: "No tenés un comercio registrado" }), { status: 404, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+        const formData = await req.formData();
+        const titulo = sanitizeText(formData.get("titulo") as string, 150);
+        if (!titulo) return new Response(JSON.stringify({ error: "El título es obligatorio" }), { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+        const descripcion = sanitizeText(formData.get("descripcion") as string, 500) || undefined;
+        const precio = sanitizeText(formData.get("precio") as string, 50) || undefined;
+        const validaHastaRaw = formData.get("validaHasta") as string | null;
+        const validaHasta = validaHastaRaw ? new Date(validaHastaRaw) : undefined;
+        let fotoUrl: string | undefined;
+        const photoFile = formData.get("photo") as File | null;
+        if (photoFile && photoFile.size > 0) {
+          const ext = photoFile.name.split(".").pop()?.toLowerCase() || "jpg";
+          const filename = `comercio_${crypto.randomUUID()}.${ext}`;
+          await Bun.write(join(uploadsDir, filename), await photoFile.arrayBuffer());
+          fotoUrl = "/uploads/" + filename;
+        }
+        const offer = await prisma.comercioOffer.create({
+          data: { comercioId: comercio.id, titulo, descripcion, precio, foto: fotoUrl, validaHasta },
+        });
+        return new Response(JSON.stringify(offer), { status: 201, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      }
+
+      // DELETE /api/comercios/me/offers/:offerId — eliminar oferta (requiere auth)
+      if (path.match(/^\/api\/comercios\/me\/offers\/[^/]+$/) && method === "DELETE") {
+        const clerkUserId = await verifyClerkToken(req);
+        if (!clerkUserId) return new Response(JSON.stringify({ error: "No autorizado" }), { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+        const offerId = path.split("/api/comercios/me/offers/")[1];
+        const comercio = await prisma.comercio.findUnique({ where: { clerkUserId } });
+        if (!comercio) return new Response(JSON.stringify({ error: "No tenés un comercio registrado" }), { status: 404, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+        const offer = await prisma.comercioOffer.findUnique({ where: { id: offerId } });
+        if (!offer || offer.comercioId !== comercio.id) return new Response(JSON.stringify({ error: "Oferta no encontrada" }), { status: 404, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+        await prisma.comercioOffer.delete({ where: { id: offerId } });
+        return new Response(JSON.stringify({ ok: true }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      }
+
+      // DELETE /api/comercios/me/fotos — eliminar foto de galería (requiere auth)
+      if (path === "/api/comercios/me/fotos" && method === "DELETE") {
+        const clerkUserId = await verifyClerkToken(req);
+        if (!clerkUserId) return new Response(JSON.stringify({ error: "No autorizado" }), { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+        const body = await req.json();
+        const { url: fotoUrl } = body;
+        if (!fotoUrl) return new Response(JSON.stringify({ error: "Falta el campo url" }), { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+        const comercio = await prisma.comercio.findUnique({ where: { clerkUserId } });
+        if (!comercio) return new Response(JSON.stringify({ error: "No tenés un comercio registrado" }), { status: 404, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+        const fotosActualizadas = comercio.fotos.filter((f) => f !== fotoUrl);
+        await prisma.comercio.update({ where: { clerkUserId }, data: { fotos: fotosActualizadas } });
+        return new Response(JSON.stringify({ ok: true }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      }
+
+      // GET /api/comercios/:slug/offers — listar ofertas activas de un comercio (público)
+      if (path.match(/^\/api\/comercios\/[^/]+\/offers$/) && method === "GET") {
+        const slug = path.split("/api/comercios/")[1].replace("/offers", "");
+        const comercio = await prisma.comercio.findUnique({ where: { slug } });
+        if (!comercio) return new Response(JSON.stringify({ error: "Comercio no encontrado" }), { status: 404, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+        const offers = await prisma.comercioOffer.findMany({
+          where: { comercioId: comercio.id, activa: true },
+          select: { id: true, titulo: true, descripcion: true, precio: true, foto: true, validaHasta: true, createdAt: true },
+          orderBy: { createdAt: "desc" },
+        });
+        return new Response(JSON.stringify(offers), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      }
+
+      // GET /api/comercios/:slug — perfil público de un comercio
+      if (path.match(/^\/api\/comercios\/[^/]+$/) && method === "GET") {
+        const slug = path.split("/api/comercios/")[1];
+        const comercio = await prisma.comercio.findUnique({
+          where: { slug },
+          select: { id: true, nombre: true, rubro: true, slug: true, barrio: true, descripcion: true, direccion: true, horario: true, whatsapp: true, telefono: true, foto: true, fotos: true, activo: true, createdAt: true,
+            offers: { where: { activa: true }, select: { id: true, titulo: true, descripcion: true, precio: true, foto: true, validaHasta: true, createdAt: true }, orderBy: { createdAt: "desc" } },
+          },
+        });
+        if (!comercio) return new Response(JSON.stringify({ error: "Comercio no encontrado" }), { status: 404, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+        return new Response(JSON.stringify(comercio), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      }
+
       // GET /api/admin/professionals — listar todos los profesionales (requiere auth)
       if (path === "/api/admin/professionals" && method === "GET") {
         const clerkUserId = await verifyClerkToken(req);

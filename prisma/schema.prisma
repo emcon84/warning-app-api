@@ -277,3 +277,43 @@ model PublicReview {
   @@index([createdAt])
   @@index([clerkUserId])
 }
+
+model Comercio {
+  id          String          @id @default(cuid())
+  clerkUserId String          @unique
+  nombre      String
+  rubro       String
+  slug        String          @unique
+  descripcion String?
+  direccion   String?
+  barrio      String
+  whatsapp    String
+  telefono    String?
+  horario     String?
+  foto        String?
+  fotos       String[]        @default([])
+  activo      Boolean         @default(true)
+  offers      ComercioOffer[]
+  createdAt   DateTime        @default(now())
+  updatedAt   DateTime        @updatedAt
+
+  @@index([barrio])
+  @@index([rubro])
+  @@index([activo])
+}
+
+model ComercioOffer {
+  id          String    @id @default(cuid())
+  comercioId  String
+  comercio    Comercio  @relation(fields: [comercioId], references: [id], onDelete: Cascade)
+  titulo      String
+  descripcion String?
+  precio      String?
+  foto        String?
+  validaHasta DateTime?
+  activa      Boolean   @default(true)
+  createdAt   DateTime  @default(now())
+
+  @@index([comercioId])
+  @@index([activa])
+}
