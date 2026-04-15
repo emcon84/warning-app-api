@@ -1977,33 +1977,27 @@ out 1;`;
         const clerkUserId = await verifyClerkToken(req);
         if (!clerkUserId) return new Response(JSON.stringify({ error: "No autorizado" }), { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } });
 
-        const { oficios, nombre, barrio, anios, zona } = await req.json() as {
-          oficios: string[];
+        const { oficios, rubro, nombre, barrio, anios, zona } = await req.json() as {
+          oficios?: string[];
+          rubro?: string;
           nombre: string;
           barrio: string;
           anios?: string;
           zona?: string;
         };
 
-        if (!oficios?.length || !nombre || !barrio) {
+        const esProfesional = oficios?.length;
+        const esComercio = !!rubro;
+
+        if ((!esProfesional && !esComercio) || !nombre || !barrio) {
           return new Response(JSON.stringify({ error: "Faltan datos" }), { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } });
         }
 
-        const groqRes = await fetch("https://api.groq.com/openai/v1/chat/completions", {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            "Authorization": `Bearer ${process.env.GROQ_API_KEY}`,
-          },
-          body: JSON.stringify({
-            model: "llama-3.1-8b-instant",
-            max_tokens: 400,
-            messages: [{
-              role: "user",
-              content: `Escribi una descripción profesional en primera persona para ${nombre}, un trabajador de oficio en Reconquista, Santa Fe.
+        const prompt = esProfesional
+          ? `Escribi una descripción profesional en primera persona para ${nombre}, un trabajador de oficio en Reconquista, Santa Fe.
 
 Datos:
-- Oficios: ${oficios.join(", ")}
+- Oficios: ${oficios!.join(", ")}
 - Barrio: ${barrio}
 ${anios ? `- Años de experiencia: ${anios}` : ""}
 ${zona ? `- Zonas donde trabaja: ${zona}` : ""}
@@ -2014,8 +2008,32 @@ La descripción debe:
 - Sonar natural y humana, no corporativa
 - Mencionar los oficios y la zona de trabajo
 - Transmitir confianza y profesionalismo
-- Devolvé SOLO la descripción, sin título, sin comillas, sin aclaraciones`,
-            }],
+- Devolvé SOLO la descripción, sin título, sin comillas, sin aclaraciones`
+          : `Escribi una descripción atractiva para el comercio "${nombre}" en Reconquista, Santa Fe.
+
+Datos:
+- Rubro: ${rubro}
+- Barrio: ${barrio}
+${zona ? `- Zona de entrega o atención: ${zona}` : ""}
+
+La descripción debe:
+- Estar en primera persona ("Somos...", "Ofrecemos...", "Nos dedicamos a...")
+- Tener entre 60 y 150 palabras
+- Sonar cálida y cercana, orientada al cliente local
+- Mencionar el rubro y el barrio/zona
+- Invitar a los clientes a contactarse
+- Devolvé SOLO la descripción, sin título, sin comillas, sin aclaraciones`;
+
+        const groqRes = await fetch("https://api.groq.com/openai/v1/chat/completions", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "Authorization": `Bearer ${process.env.GROQ_API_KEY}`,
+          },
+          body: JSON.stringify({
+            model: "llama-3.1-8b-instant",
+            max_tokens: 400,
+            messages: [{ role: "user", content: prompt }],
           }),
         });
 
