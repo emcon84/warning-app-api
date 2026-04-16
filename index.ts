@@ -2739,6 +2739,30 @@ La descripción debe:
         return new Response(JSON.stringify({ ok: true }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
       }
 
+      // GET /api/admin/comercios — listar todos los comercios (requiere auth admin)
+      if (path === "/api/admin/comercios" && method === "GET") {
+        const clerkUserId = await verifyClerkToken(req);
+        if (!clerkUserId) return new Response(JSON.stringify({ error: "No autorizado" }), { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+        const admins = (process.env.ADMIN_CLERK_IDS || "").split(",").map(s => s.trim()).filter(Boolean);
+        if (!admins.includes(clerkUserId)) return new Response(JSON.stringify({ error: "Acceso denegado" }), { status: 403, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+        const comercios = await prisma.comercio.findMany({
+          orderBy: { createdAt: "desc" },
+          select: { id: true, nombre: true, rubro: true, slug: true, barrio: true, activo: true, createdAt: true },
+        });
+        return new Response(JSON.stringify(comercios), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      }
+
+      // DELETE /api/admin/comercios/:id — eliminar comercio (requiere auth admin)
+      if (path.match(/^\/api\/admin\/comercios\/[^/]+$/) && method === "DELETE") {
+        const clerkUserId = await verifyClerkToken(req);
+        if (!clerkUserId) return new Response(JSON.stringify({ error: "No autorizado" }), { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+        const admins = (process.env.ADMIN_CLERK_IDS || "").split(",").map(s => s.trim()).filter(Boolean);
+        if (!admins.includes(clerkUserId)) return new Response(JSON.stringify({ error: "Acceso denegado" }), { status: 403, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+        const id = path.split("/")[4];
+        await prisma.comercio.delete({ where: { id } });
+        return new Response(JSON.stringify({ ok: true }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      }
+
       // DELETE /api/supermarkets/:id - Eliminar supermercado y sus ofertas
       if (path.match(/^\/api\/supermarkets\/[^/]+$/) && method === "DELETE") {
         const id = path.split("/")[3];
