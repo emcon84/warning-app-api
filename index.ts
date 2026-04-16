@@ -271,7 +271,8 @@ const server = Bun.serve({
         path.startsWith("/api/offers") ||
         path.startsWith("/api/supermarkets") ||
         path.startsWith("/api/profesionales") ||
-        path.startsWith("/api/comercios"));
+        path.startsWith("/api/comercios") ||
+        path.startsWith("/api/empleados"));
 
     if (!isPublicReadGet && path !== "/ws" && !path.startsWith("/uploads/")) {
       if (!checkRateLimit(req)) {
@@ -2272,6 +2273,202 @@ La descripción debe:
         if (!comercio) return new Response(JSON.stringify({ error: "Comercio no encontrado" }), { status: 404, headers: { ...corsHeaders, "Content-Type": "application/json" } });
         return new Response(JSON.stringify(comercio), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
       }
+
+      // ─── EMPLEADOS ────────────────────────────────────────────────────────────
+
+      // POST /api/empleados — crear perfil CV (requiere auth)
+      if (path === "/api/empleados" && method === "POST") {
+        if (!checkStrictRateLimit(req)) {
+          return new Response(JSON.stringify({ error: "Demasiadas solicitudes. Intentá en un momento." }), { status: 429, headers: { ...corsHeaders, "Content-Type": "application/json", "Retry-After": "60" } });
+        }
+        const clerkUserId = await verifyClerkToken(req);
+        if (!clerkUserId) return new Response(JSON.stringify({ error: "No autorizado" }), { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+        const existing = await prisma.empleado.findUnique({ where: { clerkUserId } });
+        if (existing) return new Response(JSON.stringify({ error: "Ya tenés un perfil de empleado creado" }), { status: 409, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+        const formData = await req.formData();
+        const nombre = sanitizeText(formData.get("nombre") as string, 100);
+        const apellido = sanitizeText(formData.get("apellido") as string, 100);
+        const descripcion = sanitizeText(formData.get("descripcion") as string, 500) || undefined;
+        const barrio = sanitizeText(formData.get("barrio") as string, 100) || undefined;
+        const whatsapp = sanitizeText(formData.get("whatsapp") as string, 30) || undefined;
+        const habilidadesRaw = formData.get("habilidades") as string | null;
+        const habilidades = habilidadesRaw ? habilidadesRaw.split(",").map(h => h.trim()).filter(Boolean) : [];
+        if (!nombre || !apellido || habilidades.length === 0) {
+          return new Response(JSON.stringify({ error: "Faltan campos obligatorios: nombre, apellido, habilidades" }), { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+        }
+        const slugBase = `${nombre}-${apellido}-${Math.random().toString(36).slice(2, 7)}`
+          .toLowerCase()
+          .normalize("NFD")
+          .replace(/[\u0300-\u036f]/g, "")
+          .replace(/[^a-z0-9]+/g, "-")
+          .replace(/^-|-$/g, "");
+        let fotoUrl: string | undefined;
+        const photoFile = formData.get("photo") as File | null;
+        if (photoFile && photoFile.size > 0) {
+          const ext = photoFile.name.split(".").pop()?.toLowerCase() || "jpg";
+          const filename = `empleado_${crypto.randomUUID()}.${ext}`;
+          await Bun.write(join(uploadsDir, filename), await photoFile.arrayBuffer());
+          fotoUrl = "/uploads/" + filename;
+        }
+        const empleado = await prisma.empleado.create({
+          data: { clerkUserId, nombre, apellido, slug: slugBase, habilidades, descripcion, barrio, whatsapp, foto: fotoUrl },
+        });
+        return new Response(JSON.stringify(empleado), { status: 201, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      }
+
+      // GET /api/empleados — listar empleados activos (público)
+      if (path === "/api/empleados" && method === "GET") {
+        const barrio = url.searchParams.get("barrio") ?? undefined;
+        const habilidad = url.searchParams.get("habilidad") ?? undefined;
+        const empleados = await prisma.empleado.findMany({
+          where: {
+            activo: true,
+            ...(barrio ? { barrio: { contains: barrio, mode: "insensitive" } } : {}),
+            ...(habilidad ? { habilidades: { has: habilidad } } : {}),
+          },
+          select: { id: true, nombre: true, apellido: true, slug: true, habilidades: true, barrio: true, foto: true, descripcion: true, disponible: true, activo: true, createdAt: true },
+          orderBy: { createdAt: "desc" },
+        });
+        return new Response(JSON.stringify(empleados), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      }
+
+      // GET /api/empleados/me — perfil propio (requiere auth)
+      if (path === "/api/empleados/me" && method === "GET") {
+        const clerkUserId = await verifyClerkToken(req);
+        if (!clerkUserId) return new Response(JSON.stringify({ error: "No autorizado" }), { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+        const empleado = await prisma.empleado.findUnique({
+          where: { clerkUserId },
+          select: { id: true, nombre: true, apellido: true, slug: true, habilidades: true, descripcion: true, barrio: true, whatsapp: true, foto: true, disponible: true, activo: true, createdAt: true, updatedAt: true },
+        });
+        if (!empleado) return new Response(JSON.stringify({ error: "No tenés un perfil de empleado" }), { status: 404, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+        return new Response(JSON.stringify(empleado), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      }
+
+      // PUT /api/empleados/me — actualizar perfil propio (requiere auth)
+      if (path === "/api/empleados/me" && method === "PUT") {
+        const clerkUserId = await verifyClerkToken(req);
+        if (!clerkUserId) return new Response(JSON.stringify({ error: "No autorizado" }), { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+        const empleadoExistente = await prisma.empleado.findUnique({ where: { clerkUserId } });
+        if (!empleadoExistente) return new Response(JSON.stringify({ error: "No tenés un perfil de empleado" }), { status: 404, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+        const formData = await req.formData();
+        const updateData: Record<string, unknown> = {};
+        const nombre = formData.get("nombre") as string | null;
+        const apellido = formData.get("apellido") as string | null;
+        const descripcion = formData.get("descripcion") as string | null;
+        const barrio = formData.get("barrio") as string | null;
+        const whatsapp = formData.get("whatsapp") as string | null;
+        const habilidadesRaw = formData.get("habilidades") as string | null;
+        const disponibleRaw = formData.get("disponible") as string | null;
+        if (nombre) updateData.nombre = sanitizeText(nombre, 100);
+        if (apellido) updateData.apellido = sanitizeText(apellido, 100);
+        if (descripcion !== null) updateData.descripcion = sanitizeText(descripcion, 500) || null;
+        if (barrio !== null) updateData.barrio = sanitizeText(barrio, 100) || null;
+        if (whatsapp !== null) updateData.whatsapp = sanitizeText(whatsapp, 30) || null;
+        if (habilidadesRaw !== null) updateData.habilidades = habilidadesRaw.split(",").map(h => h.trim()).filter(Boolean);
+        if (disponibleRaw !== null) updateData.disponible = disponibleRaw === "true";
+        const mainPhoto = formData.get("photo") as File | null;
+        if (mainPhoto && mainPhoto.size > 0) {
+          const ext = mainPhoto.name.split(".").pop()?.toLowerCase() || "jpg";
+          const filename = `empleado_${crypto.randomUUID()}.${ext}`;
+          await Bun.write(join(uploadsDir, filename), await mainPhoto.arrayBuffer());
+          updateData.foto = "/uploads/" + filename;
+        }
+        const empleado = await prisma.empleado.update({ where: { clerkUserId }, data: updateData });
+        return new Response(JSON.stringify(empleado), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      }
+
+      // GET /api/empleados/:slug — perfil público de un empleado
+      if (path.match(/^\/api\/empleados\/[^/]+$/) && method === "GET") {
+        const slug = path.split("/api/empleados/")[1];
+        if (slug === "me") {
+          return new Response(JSON.stringify({ error: "No autorizado" }), { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+        }
+        const empleado = await prisma.empleado.findUnique({
+          where: { slug },
+          select: { id: true, nombre: true, apellido: true, slug: true, habilidades: true, descripcion: true, barrio: true, whatsapp: true, foto: true, disponible: true, activo: true, createdAt: true },
+        });
+        if (!empleado || !empleado.activo) return new Response(JSON.stringify({ error: "Empleado no encontrado" }), { status: 404, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+        return new Response(JSON.stringify(empleado), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      }
+
+      // POST /api/empleados/:slug/conversaciones — iniciar chat con empleado
+      if (path.match(/^\/api\/empleados\/[^/]+\/conversaciones$/) && method === "POST") {
+        const slug = path.split("/api/empleados/")[1].replace("/conversaciones", "");
+        const empleado = await prisma.empleado.findUnique({ where: { slug } });
+        if (!empleado || !empleado.activo) return new Response(JSON.stringify({ error: "Empleado no encontrado" }), { status: 404, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+        const body = await req.json();
+        const clientToken = sanitizeText(body.clientToken as string, 100);
+        const clientName = sanitizeText(body.clientName as string, 100) || undefined;
+        const mensaje = sanitizeText(body.mensaje as string, 1000);
+        if (!clientToken || !mensaje) return new Response(JSON.stringify({ error: "Faltan campos: clientToken, mensaje" }), { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+        const convo = await prisma.empleadoConversation.create({
+          data: {
+            empleadoId: empleado.id,
+            clientToken,
+            clientName,
+            updatedAt: new Date(),
+            Message: { create: { senderType: "client", content: mensaje } },
+          },
+          include: { Message: true },
+        });
+        return new Response(JSON.stringify(convo), { status: 201, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      }
+
+      // GET /api/empleados/me/conversaciones — conversaciones del empleado (requiere auth)
+      if (path === "/api/empleados/me/conversaciones" && method === "GET") {
+        const clerkUserId = await verifyClerkToken(req);
+        if (!clerkUserId) return new Response(JSON.stringify({ error: "No autorizado" }), { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+        const empleado = await prisma.empleado.findUnique({ where: { clerkUserId } });
+        if (!empleado) return new Response(JSON.stringify({ error: "No tenés un perfil de empleado" }), { status: 404, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+        const convos = await prisma.empleadoConversation.findMany({
+          where: { empleadoId: empleado.id },
+          include: { Message: { orderBy: { createdAt: "desc" }, take: 1 } },
+          orderBy: { updatedAt: "desc" },
+        });
+        return new Response(JSON.stringify(convos), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      }
+
+      // GET /api/empleados/conversaciones/:id — ver conversación (por token de cliente o auth de empleado)
+      if (path.match(/^\/api\/empleados\/conversaciones\/[^/]+$/) && method === "GET") {
+        const convId = path.split("/api/empleados/conversaciones/")[1];
+        const clientToken = url.searchParams.get("clientToken");
+        const clerkUserId = clientToken ? null : await verifyClerkToken(req).catch(() => null);
+        const convo = await prisma.empleadoConversation.findUnique({
+          where: { id: convId },
+          include: { Message: { orderBy: { createdAt: "asc" } }, empleado: { select: { slug: true, nombre: true, apellido: true, foto: true, whatsapp: true, clerkUserId: true } } },
+        });
+        if (!convo) return new Response(JSON.stringify({ error: "Conversación no encontrada" }), { status: 404, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+        const isClient = clientToken && convo.clientToken === clientToken;
+        const isEmpleado = clerkUserId && convo.empleado.clerkUserId === clerkUserId;
+        if (!isClient && !isEmpleado) return new Response(JSON.stringify({ error: "No autorizado" }), { status: 403, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+        return new Response(JSON.stringify(convo), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      }
+
+      // POST /api/empleados/conversaciones/:id/mensajes — enviar mensaje en conversación
+      if (path.match(/^\/api\/empleados\/conversaciones\/[^/]+\/mensajes$/) && method === "POST") {
+        const convId = path.split("/api/empleados/conversaciones/")[1].replace("/mensajes", "");
+        const body = await req.json();
+        const clientToken = body.clientToken as string | undefined;
+        const clerkUserId = clientToken ? null : await verifyClerkToken(req).catch(() => null);
+        const convo = await prisma.empleadoConversation.findUnique({
+          where: { id: convId },
+          include: { empleado: { select: { clerkUserId: true } } },
+        });
+        if (!convo) return new Response(JSON.stringify({ error: "Conversación no encontrada" }), { status: 404, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+        const isClient = clientToken && convo.clientToken === clientToken;
+        const isEmpleado = clerkUserId && convo.empleado.clerkUserId === clerkUserId;
+        if (!isClient && !isEmpleado) return new Response(JSON.stringify({ error: "No autorizado" }), { status: 403, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+        const content = sanitizeText(body.content as string, 1000);
+        if (!content) return new Response(JSON.stringify({ error: "Falta el contenido del mensaje" }), { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+        const senderType = isEmpleado ? "professional" : "client";
+        const msg = await prisma.empleadoMessage.create({
+          data: { conversationId: convId, senderType, content },
+        });
+        await prisma.empleadoConversation.update({ where: { id: convId }, data: { updatedAt: new Date() } });
+        return new Response(JSON.stringify(msg), { status: 201, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      }
+
+      // ─── FIN EMPLEADOS ────────────────────────────────────────────────────────
 
       // GET /api/admin/professionals — listar todos los profesionales (requiere auth)
       if (path === "/api/admin/professionals" && method === "GET") {
