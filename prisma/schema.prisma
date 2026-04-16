@@ -63,12 +63,12 @@ model Conversation {
   id             String       @id @default(cuid())
   professionalId String
   clientToken    String
-  clientName     String?
   status         String       @default("open")
   agreedAt       DateTime?
   completedAt    DateTime?
   createdAt      DateTime     @default(now())
   updatedAt      DateTime
+  clientName     String?
   Professional   Professional @relation(fields: [professionalId], references: [id], onDelete: Cascade)
   Message        Message[]
   Rating         Rating?
@@ -175,10 +175,10 @@ model Professional {
   ratingCount  Int            @default(0)
   createdAt    DateTime       @default(now())
   updatedAt    DateTime
-  Conversation  Conversation[]
-  Rating        Rating[]
-  PublicReview  PublicReview[]
-  UserFavorite  UserFavorite[]
+  Conversation Conversation[]
+  PublicReview PublicReview[]
+  Rating       Rating[]
+  UserFavorite UserFavorite[]
 
   @@index([barrio])
   @@index([disponible])
@@ -256,8 +256,8 @@ model UserFavorite {
   userId         String
   professionalId String
   createdAt      DateTime     @default(now())
-  User           User         @relation(fields: [userId], references: [id], onDelete: Cascade)
   Professional   Professional @relation(fields: [professionalId], references: [id], onDelete: Cascade)
+  User           User         @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@unique([userId, professionalId])
   @@index([userId])
@@ -266,7 +266,6 @@ model UserFavorite {
 model PublicReview {
   id             String       @id @default(cuid())
   professionalId String
-  professional   Professional @relation(fields: [professionalId], references: [id], onDelete: Cascade)
   clerkUserId    String?
   reviewerName   String       @default("Vecino anónimo")
   score          Float
@@ -274,6 +273,7 @@ model PublicReview {
   reported       Boolean      @default(false)
   reportedAt     DateTime?
   createdAt      DateTime     @default(now())
+  professional   Professional @relation(fields: [professionalId], references: [id], onDelete: Cascade)
 
   @@index([professionalId])
   @@index([createdAt])
@@ -295,10 +295,10 @@ model Comercio {
   foto        String?
   fotos       String[]        @default([])
   activo      Boolean         @default(true)
-  offers      ComercioOffer[]
-  vacantes    Vacante[]
   createdAt   DateTime        @default(now())
   updatedAt   DateTime        @updatedAt
+  offers      ComercioOffer[]
+  vacantes    Vacante[]
 
   @@index([barrio])
   @@index([rubro])
@@ -308,7 +308,6 @@ model Comercio {
 model ComercioOffer {
   id          String    @id @default(cuid())
   comercioId  String
-  comercio    Comercio  @relation(fields: [comercioId], references: [id], onDelete: Cascade)
   titulo      String
   descripcion String?
   precio      String?
@@ -316,26 +315,27 @@ model ComercioOffer {
   validaHasta DateTime?
   activa      Boolean   @default(true)
   createdAt   DateTime  @default(now())
+  comercio    Comercio  @relation(fields: [comercioId], references: [id], onDelete: Cascade)
 
   @@index([comercioId])
   @@index([activa])
 }
 
 model Empleado {
-  id           String               @id @default(cuid())
-  clerkUserId  String               @unique
+  id           String                 @id @default(cuid())
+  clerkUserId  String                 @unique
   nombre       String
   apellido     String
-  slug         String               @unique
+  slug         String                 @unique
   habilidades  String[]
   descripcion  String?
   barrio       String?
   whatsapp     String?
   foto         String?
-  disponible   Boolean              @default(true)
-  activo       Boolean              @default(true)
-  createdAt    DateTime             @default(now())
-  updatedAt    DateTime             @updatedAt
+  disponible   Boolean                @default(true)
+  activo       Boolean                @default(true)
+  createdAt    DateTime               @default(now())
+  updatedAt    DateTime               @updatedAt
   Conversation EmpleadoConversation[]
 
   @@index([disponible])
@@ -344,14 +344,14 @@ model Empleado {
 }
 
 model EmpleadoConversation {
-  id          String    @id @default(cuid())
+  id          String            @id @default(cuid())
   empleadoId  String
   clientToken String
   clientName  String?
-  status      String    @default("open")
-  createdAt   DateTime  @default(now())
-  updatedAt   DateTime  @updatedAt
-  empleado    Empleado  @relation(fields: [empleadoId], references: [id], onDelete: Cascade)
+  status      String            @default("open")
+  createdAt   DateTime          @default(now())
+  updatedAt   DateTime          @updatedAt
+  empleado    Empleado          @relation(fields: [empleadoId], references: [id], onDelete: Cascade)
   Message     EmpleadoMessage[]
 
   @@index([clientToken])
@@ -373,19 +373,19 @@ model EmpleadoMessage {
 }
 
 model Vacante {
-  id           String               @id @default(cuid())
+  id           String                @id @default(cuid())
   comercioId   String
-  comercio     Comercio             @relation(fields: [comercioId], references: [id], onDelete: Cascade)
   titulo       String
   descripcion  String
-  habilidades  String[]             @default([])
+  habilidades  String[]              @default([])
   barrio       String?
   horario      String?
   salario      String?
   modalidad    String?
-  activa       Boolean              @default(true)
-  createdAt    DateTime             @default(now())
-  updatedAt    DateTime             @updatedAt
+  activa       Boolean               @default(true)
+  createdAt    DateTime              @default(now())
+  updatedAt    DateTime              @updatedAt
+  comercio     Comercio              @relation(fields: [comercioId], references: [id], onDelete: Cascade)
   Conversation VacanteConversation[]
 
   @@index([comercioId])
@@ -394,14 +394,14 @@ model Vacante {
 }
 
 model VacanteConversation {
-  id          String    @id @default(cuid())
+  id          String           @id @default(cuid())
   vacanteId   String
   clientToken String
   clientName  String?
-  status      String    @default("open")
-  createdAt   DateTime  @default(now())
-  updatedAt   DateTime  @updatedAt
-  vacante     Vacante   @relation(fields: [vacanteId], references: [id], onDelete: Cascade)
+  status      String           @default("open")
+  createdAt   DateTime         @default(now())
+  updatedAt   DateTime         @updatedAt
+  vacante     Vacante          @relation(fields: [vacanteId], references: [id], onDelete: Cascade)
   Message     VacanteMessage[]
 
   @@index([clientToken])
