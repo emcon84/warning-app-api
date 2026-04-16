@@ -272,7 +272,8 @@ const server = Bun.serve({
         path.startsWith("/api/supermarkets") ||
         path.startsWith("/api/profesionales") ||
         path.startsWith("/api/comercios") ||
-        path.startsWith("/api/empleados"));
+        path.startsWith("/api/empleados") ||
+        path.startsWith("/api/vacantes"));
 
     if (!isPublicReadGet && path !== "/ws" && !path.startsWith("/uploads/")) {
       if (!checkRateLimit(req)) {
@@ -2470,6 +2471,199 @@ La descripción debe:
 
       // ─── FIN EMPLEADOS ────────────────────────────────────────────────────────
 
+      // ─── VACANTES ─────────────────────────────────────────────────────────────
+
+      // POST /api/vacantes — crear vacante (requiere auth + tener comercio)
+      if (path === "/api/vacantes" && method === "POST") {
+        if (!checkStrictRateLimit(req)) {
+          return new Response(JSON.stringify({ error: "Demasiadas solicitudes. Intentá en un momento." }), { status: 429, headers: { ...corsHeaders, "Content-Type": "application/json", "Retry-After": "60" } });
+        }
+        const clerkUserId = await verifyClerkToken(req);
+        if (!clerkUserId) return new Response(JSON.stringify({ error: "No autorizado" }), { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+        const comercio = await prisma.comercio.findUnique({ where: { clerkUserId } });
+        if (!comercio) return new Response(JSON.stringify({ error: "Necesitás tener un perfil de comercio para publicar vacantes" }), { status: 403, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+        const body = await req.json();
+        const titulo = sanitizeText(body.titulo as string, 150);
+        const descripcion = sanitizeText(body.descripcion as string, 1000);
+        if (!titulo || !descripcion) return new Response(JSON.stringify({ error: "Faltan campos: titulo, descripcion" }), { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+        const habilidades = Array.isArray(body.habilidades) ? body.habilidades.map((h: string) => sanitizeText(h, 60)).filter(Boolean) : [];
+        const barrio = sanitizeText(body.barrio as string, 100) || undefined;
+        const horario = sanitizeText(body.horario as string, 150) || undefined;
+        const salario = sanitizeText(body.salario as string, 80) || undefined;
+        const modalidad = sanitizeText(body.modalidad as string, 60) || undefined;
+        const vacante = await prisma.vacante.create({
+          data: { comercioId: comercio.id, titulo, descripcion, habilidades, barrio, horario, salario, modalidad },
+          include: { comercio: { select: { nombre: true, slug: true, foto: true, rubro: true } } },
+        });
+        return new Response(JSON.stringify(vacante), { status: 201, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      }
+
+      // GET /api/vacantes — listar vacantes activas (público)
+      if (path === "/api/vacantes" && method === "GET") {
+        const barrio = url.searchParams.get("barrio") ?? undefined;
+        const habilidad = url.searchParams.get("habilidad") ?? undefined;
+        const vacantes = await prisma.vacante.findMany({
+          where: {
+            activa: true,
+            ...(barrio ? { barrio: { contains: barrio, mode: "insensitive" } } : {}),
+            ...(habilidad ? { habilidades: { has: habilidad } } : {}),
+          },
+          include: { comercio: { select: { nombre: true, slug: true, foto: true, rubro: true } } },
+          orderBy: { createdAt: "desc" },
+        });
+        return new Response(JSON.stringify(vacantes), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      }
+
+      // GET /api/vacantes/mis — mis vacantes (requiere auth + comercio)
+      if (path === "/api/vacantes/mis" && method === "GET") {
+        const clerkUserId = await verifyClerkToken(req);
+        if (!clerkUserId) return new Response(JSON.stringify({ error: "No autorizado" }), { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+        const comercio = await prisma.comercio.findUnique({ where: { clerkUserId } });
+        if (!comercio) return new Response(JSON.stringify({ error: "No tenés un comercio registrado" }), { status: 404, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+        const vacantes = await prisma.vacante.findMany({
+          where: { comercioId: comercio.id },
+          orderBy: { createdAt: "desc" },
+        });
+        return new Response(JSON.stringify(vacantes), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      }
+
+      // GET /api/vacantes/:id — detalle de vacante (público)
+      if (path.match(/^\/api\/vacantes\/[^/]+$/) && method === "GET") {
+        const id = path.split("/api/vacantes/")[1];
+        if (id === "mis") {
+          return new Response(JSON.stringify({ error: "No autorizado" }), { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+        }
+        const vacante = await prisma.vacante.findUnique({
+          where: { id },
+          include: { comercio: { select: { nombre: true, slug: true, foto: true, rubro: true, barrio: true, whatsapp: true } } },
+        });
+        if (!vacante || !vacante.activa) return new Response(JSON.stringify({ error: "Vacante no encontrada" }), { status: 404, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+        return new Response(JSON.stringify(vacante), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      }
+
+      // PUT /api/vacantes/:id — actualizar vacante (requiere auth + ser dueño)
+      if (path.match(/^\/api\/vacantes\/[^/]+$/) && method === "PUT") {
+        const clerkUserId = await verifyClerkToken(req);
+        if (!clerkUserId) return new Response(JSON.stringify({ error: "No autorizado" }), { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+        const id = path.split("/api/vacantes/")[1];
+        const comercio = await prisma.comercio.findUnique({ where: { clerkUserId } });
+        if (!comercio) return new Response(JSON.stringify({ error: "No autorizado" }), { status: 403, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+        const vacante = await prisma.vacante.findUnique({ where: { id } });
+        if (!vacante || vacante.comercioId !== comercio.id) return new Response(JSON.stringify({ error: "Vacante no encontrada" }), { status: 404, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+        const body = await req.json();
+        const updateData: Record<string, unknown> = {};
+        if (body.titulo) updateData.titulo = sanitizeText(body.titulo as string, 150);
+        if (body.descripcion) updateData.descripcion = sanitizeText(body.descripcion as string, 1000);
+        if (body.habilidades) updateData.habilidades = (body.habilidades as string[]).map((h) => sanitizeText(h, 60)).filter(Boolean);
+        if (body.barrio !== undefined) updateData.barrio = sanitizeText(body.barrio as string, 100) || null;
+        if (body.horario !== undefined) updateData.horario = sanitizeText(body.horario as string, 150) || null;
+        if (body.salario !== undefined) updateData.salario = sanitizeText(body.salario as string, 80) || null;
+        if (body.modalidad !== undefined) updateData.modalidad = sanitizeText(body.modalidad as string, 60) || null;
+        if (body.activa !== undefined) updateData.activa = body.activa === true || body.activa === "true";
+        const updated = await prisma.vacante.update({ where: { id }, data: updateData });
+        return new Response(JSON.stringify(updated), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      }
+
+      // DELETE /api/vacantes/:id — eliminar vacante (requiere auth + ser dueño)
+      if (path.match(/^\/api\/vacantes\/[^/]+$/) && method === "DELETE") {
+        const clerkUserId = await verifyClerkToken(req);
+        if (!clerkUserId) return new Response(JSON.stringify({ error: "No autorizado" }), { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+        const id = path.split("/api/vacantes/")[1];
+        const comercio = await prisma.comercio.findUnique({ where: { clerkUserId } });
+        if (!comercio) return new Response(JSON.stringify({ error: "No autorizado" }), { status: 403, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+        const vacante = await prisma.vacante.findUnique({ where: { id } });
+        if (!vacante || vacante.comercioId !== comercio.id) return new Response(JSON.stringify({ error: "Vacante no encontrada" }), { status: 404, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+        await prisma.vacante.delete({ where: { id } });
+        return new Response(JSON.stringify({ ok: true }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      }
+
+      // POST /api/vacantes/:id/conversaciones — postularse/contactar (público)
+      if (path.match(/^\/api\/vacantes\/[^/]+\/conversaciones$/) && method === "POST") {
+        const id = path.split("/api/vacantes/")[1].replace("/conversaciones", "");
+        const vacante = await prisma.vacante.findUnique({ where: { id } });
+        if (!vacante || !vacante.activa) return new Response(JSON.stringify({ error: "Vacante no encontrada" }), { status: 404, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+        const body = await req.json();
+        const clientToken = sanitizeText(body.clientToken as string, 100);
+        const clientName = sanitizeText(body.clientName as string, 100) || undefined;
+        const mensaje = sanitizeText(body.mensaje as string, 1000);
+        if (!clientToken || !mensaje) return new Response(JSON.stringify({ error: "Faltan campos: clientToken, mensaje" }), { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+        const convo = await prisma.vacanteConversation.create({
+          data: {
+            vacanteId: vacante.id,
+            clientToken,
+            clientName,
+            updatedAt: new Date(),
+            Message: { create: { senderType: "client", content: mensaje } },
+          },
+          include: { Message: true },
+        });
+        return new Response(JSON.stringify(convo), { status: 201, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      }
+
+      // GET /api/vacantes/mis/conversaciones — ver postulaciones recibidas (requiere auth + comercio)
+      if (path === "/api/vacantes/mis/conversaciones" && method === "GET") {
+        const clerkUserId = await verifyClerkToken(req);
+        if (!clerkUserId) return new Response(JSON.stringify({ error: "No autorizado" }), { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+        const comercio = await prisma.comercio.findUnique({ where: { clerkUserId } });
+        if (!comercio) return new Response(JSON.stringify({ error: "No tenés un comercio registrado" }), { status: 404, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+        const vacantes = await prisma.vacante.findMany({ where: { comercioId: comercio.id }, select: { id: true } });
+        const vacanteIds = vacantes.map((v) => v.id);
+        const convos = await prisma.vacanteConversation.findMany({
+          where: { vacanteId: { in: vacanteIds } },
+          include: {
+            vacante: { select: { titulo: true } },
+            Message: { orderBy: { createdAt: "desc" }, take: 1 },
+          },
+          orderBy: { updatedAt: "desc" },
+        });
+        return new Response(JSON.stringify(convos), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      }
+
+      // GET /api/vacantes/conversaciones/:id — ver conversación (por token o auth de comercio)
+      if (path.match(/^\/api\/vacantes\/conversaciones\/[^/]+$/) && method === "GET") {
+        const convId = path.split("/api/vacantes/conversaciones/")[1];
+        const clientToken = url.searchParams.get("clientToken");
+        const clerkUserId = clientToken ? null : await verifyClerkToken(req).catch(() => null);
+        const convo = await prisma.vacanteConversation.findUnique({
+          where: { id: convId },
+          include: {
+            Message: { orderBy: { createdAt: "asc" } },
+            vacante: { include: { comercio: { select: { clerkUserId: true, nombre: true, slug: true, foto: true, whatsapp: true } } } },
+          },
+        });
+        if (!convo) return new Response(JSON.stringify({ error: "Conversación no encontrada" }), { status: 404, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+        const isClient = clientToken && convo.clientToken === clientToken;
+        const isComercio = clerkUserId && convo.vacante.comercio.clerkUserId === clerkUserId;
+        if (!isClient && !isComercio) return new Response(JSON.stringify({ error: "No autorizado" }), { status: 403, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+        return new Response(JSON.stringify(convo), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      }
+
+      // POST /api/vacantes/conversaciones/:id/mensajes — enviar mensaje
+      if (path.match(/^\/api\/vacantes\/conversaciones\/[^/]+\/mensajes$/) && method === "POST") {
+        const convId = path.split("/api/vacantes/conversaciones/")[1].replace("/mensajes", "");
+        const body = await req.json();
+        const clientToken = body.clientToken as string | undefined;
+        const clerkUserId = clientToken ? null : await verifyClerkToken(req).catch(() => null);
+        const convo = await prisma.vacanteConversation.findUnique({
+          where: { id: convId },
+          include: { vacante: { include: { comercio: { select: { clerkUserId: true } } } } },
+        });
+        if (!convo) return new Response(JSON.stringify({ error: "Conversación no encontrada" }), { status: 404, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+        const isClient = clientToken && convo.clientToken === clientToken;
+        const isComercio = clerkUserId && convo.vacante.comercio.clerkUserId === clerkUserId;
+        if (!isClient && !isComercio) return new Response(JSON.stringify({ error: "No autorizado" }), { status: 403, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+        const content = sanitizeText(body.content as string, 1000);
+        if (!content) return new Response(JSON.stringify({ error: "Falta el contenido del mensaje" }), { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+        const senderType = isComercio ? "professional" : "client";
+        const msg = await prisma.vacanteMessage.create({
+          data: { conversationId: convId, senderType, content },
+        });
+        await prisma.vacanteConversation.update({ where: { id: convId }, data: { updatedAt: new Date() } });
+        return new Response(JSON.stringify(msg), { status: 201, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      }
+
+      // ─── FIN VACANTES ─────────────────────────────────────────────────────────
+
       // GET /api/admin/professionals — listar todos los profesionales (requiere auth)
       if (path === "/api/admin/professionals" && method === "GET") {
         const clerkUserId = await verifyClerkToken(req);
@@ -2478,7 +2672,7 @@ La descripción debe:
         if (!admins.includes(clerkUserId)) return new Response(JSON.stringify({ error: "Acceso denegado" }), { status: 403, headers: { ...corsHeaders, "Content-Type": "application/json" } });
         const professionals = await prisma.professional.findMany({
           orderBy: { createdAt: "desc" },
-          select: { id: true, nombre: true, apellido: true, slug: true, oficios: true, barrio: true, activo: true, ratingAvg: true, ratingCount: true, createdAt: true },
+          select: { id: true, nombre: true, apellido: true, slug: true, tipo: true, oficios: true, barrio: true, activo: true, ratingAvg: true, ratingCount: true, createdAt: true },
         });
         return new Response(JSON.stringify(professionals), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
       }
@@ -2566,15 +2760,18 @@ La descripción debe:
       if (path === "/api/professionals" && method === "GET") {
         const oficio = url.searchParams.get("oficio");
         const barrio = url.searchParams.get("barrio");
+        const tipoParam = url.searchParams.get("tipo");
+        const tipo = tipoParam === "profesion" || tipoParam === "oficio" ? tipoParam : null;
         const professionals = await prisma.professional.findMany({
           where: {
             activo: true,
             ...(oficio ? { oficios: { has: oficio } } : {}),
             ...(barrio ? { barrio } : {}),
+            ...(tipo ? { tipo } : {}),
           },
           select: {
             id: true, nombre: true, apellido: true, slug: true,
-            oficios: true, barrio: true, foto: true,
+            tipo: true, oficios: true, barrio: true, foto: true,
             disponible: true, ratingAvg: true, ratingCount: true,
           },
           orderBy: { ratingAvg: "desc" },
@@ -2750,13 +2947,14 @@ La descripción debe:
         body.apellido = sanitizeText(body.apellido, 60);
         body.descripcion = sanitizeText(body.descripcion, 500);
         body.barrio = sanitizeText(body.barrio, 100);
-        const { nombre, apellido, oficios, descripcion, barrio, telefono, whatsapp } = body;
+        const { nombre, apellido, tipo, oficios, descripcion, barrio, telefono, whatsapp } = body;
+        const safeTipo = tipo === "profesion" || tipo === "oficio" ? tipo : null;
         if (!nombre || !apellido || !oficios?.length || !barrio) {
           return new Response(JSON.stringify({ error: "Faltan campos obligatorios" }), { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } });
         }
         const slug = generateSlug(nombre, apellido, oficios);
         const professional = await prisma.professional.create({
-          data: { clerkUserId, nombre, apellido, slug, oficios, descripcion, barrio, telefono, whatsapp, updatedAt: new Date() },
+          data: { clerkUserId, nombre, apellido, slug, tipo: safeTipo, oficios, descripcion, barrio, telefono, whatsapp, updatedAt: new Date() },
         });
         return new Response(JSON.stringify(professional), {
           status: 201,
@@ -2769,10 +2967,11 @@ La descripción debe:
         const clerkUserId = await verifyClerkToken(req);
         if (!clerkUserId) return new Response(JSON.stringify({ error: "No autorizado" }), { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } });
         const body = await req.json();
-        const { nombre, apellido, oficios, descripcion, barrio, telefono, whatsapp, disponible, fotos, foto } = body;
+        const { nombre, apellido, tipo, oficios, descripcion, barrio, telefono, whatsapp, disponible, fotos, foto } = body;
+        const safeTipo = tipo === "profesion" || tipo === "oficio" ? tipo : undefined;
         const professional = await prisma.professional.update({
           where: { clerkUserId },
-          data: { nombre, apellido, oficios, descripcion, barrio, telefono, whatsapp, disponible, fotos, foto },
+          data: { nombre, apellido, ...(safeTipo ? { tipo: safeTipo } : {}), oficios, descripcion, barrio, telefono, whatsapp, disponible, fotos, foto },
         });
         return new Response(JSON.stringify(professional), {
           headers: { ...corsHeaders, "Content-Type": "application/json" },

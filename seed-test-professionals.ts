@@ -13,6 +13,13 @@ const prisma = new PrismaClient();
 
 const WHATSAPP = "+5493482445015";
 const CLERK_USER_ID_BASE = "test_pro_"; // IDs ficticios únicos
+const PROFESION_KEYWORDS = ["diseñ", "tecnico", "program", "contador", "abogad", "ingenier"];
+const normalize = (s: string) =>
+  s.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+const inferTipo = (oficios: string[]) =>
+  oficios.some((o) => PROFESION_KEYWORDS.some((kw) => normalize(o).includes(kw)))
+    ? "profesion"
+    : "oficio";
 
 const professionals = [
   {
@@ -146,6 +153,7 @@ async function seed() {
     const created = await prisma.professional.upsert({
       where: { slug: pro.slug },
       update: {
+        tipo: inferTipo(pro.oficios),
         whatsapp: WHATSAPP,
         telefono: "3482 445015",
         ratingAvg: pro.ratingAvg,
@@ -158,6 +166,7 @@ async function seed() {
         nombre: pro.nombre,
         apellido: pro.apellido,
         slug: pro.slug,
+        tipo: inferTipo(pro.oficios),
         oficios: pro.oficios,
         barrio: pro.barrio,
         descripcion: pro.descripcion,

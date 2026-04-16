@@ -130,7 +130,7 @@ async function main() {
       continue;
     }
 
-    await prisma.professional.create({ data: pro });
+    await prisma.professional.create({ data: { ...pro, tipo: "oficio" } });
     console.log(`✅ Creado: ${pro.nombre} ${pro.apellido} — ${pro.oficios[0]}`);
   }
 
