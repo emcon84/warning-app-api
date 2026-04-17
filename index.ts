@@ -3301,6 +3301,8 @@ La descripción debe:
         if (!clerkUserId) return new Response(JSON.stringify({ error: "No autorizado" }), { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } });
         const professional = await prisma.professional.findUnique({ where: { clerkUserId } });
         if (!professional) return new Response(JSON.stringify({ error: "Perfil no encontrado" }), { status: 404, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+        const limit = Math.min(parseInt(url.searchParams.get("limit") || "20"), 50);
+        const cursor = url.searchParams.get("cursor") || undefined;
         const conversations = await prisma.conversation.findMany({
           where: { professionalId: professional.id },
           include: {
@@ -3308,8 +3310,19 @@ La descripción debe:
             Message: { orderBy: { createdAt: "desc" }, take: 1 },
           },
           orderBy: { updatedAt: "desc" },
+          take: limit + 1,
+          ...(cursor ? { cursor: { id: cursor }, skip: 1 } : {}),
         });
-        return new Response(JSON.stringify(conversations), {
+        const hasMore = conversations.length > limit;
+        const items = hasMore ? conversations.slice(0, limit) : conversations;
+        // Agregar conteo real de no leídos (mensajes del cliente no leídos por el profesional)
+        const withUnread = await Promise.all(items.map(async (c) => ({
+          ...c,
+          _unreadCount: await prisma.message.count({
+            where: { conversationId: c.id, senderType: "client", read: false },
+          }),
+        })));
+        return new Response(JSON.stringify({ items: withUnread, hasMore, nextCursor: hasMore ? items[items.length - 1].id : null }), {
           headers: { ...corsHeaders, "Content-Type": "application/json" },
         });
       }
@@ -3317,6 +3330,8 @@ La descripción debe:
       // GET /api/conversations/client/:token — conversaciones del cliente anónimo
       if (path.startsWith("/api/conversations/client/") && method === "GET") {
         const clientToken = path.split("/api/conversations/client/")[1];
+        const limit = Math.min(parseInt(url.searchParams.get("limit") || "20"), 50);
+        const cursor = url.searchParams.get("cursor") || undefined;
         const conversations = await prisma.conversation.findMany({
           where: { clientToken },
           include: {
@@ -3324,8 +3339,19 @@ La descripción debe:
             Message: { orderBy: { createdAt: "desc" }, take: 1 },
           },
           orderBy: { updatedAt: "desc" },
+          take: limit + 1,
+          ...(cursor ? { cursor: { id: cursor }, skip: 1 } : {}),
         });
-        return new Response(JSON.stringify(conversations), {
+        const hasMore = conversations.length > limit;
+        const items = hasMore ? conversations.slice(0, limit) : conversations;
+        // Agregar conteo real de no leídos (mensajes del profesional no leídos por el cliente)
+        const withUnread = await Promise.all(items.map(async (c) => ({
+          ...c,
+          _unreadCount: await prisma.message.count({
+            where: { conversationId: c.id, senderType: "professional", read: false },
+          }),
+        })));
+        return new Response(JSON.stringify({ items: withUnread, hasMore, nextCursor: hasMore ? items[items.length - 1].id : null }), {
           headers: { ...corsHeaders, "Content-Type": "application/json" },
         });
       }
