@@ -784,7 +784,7 @@ const server = Bun.serve({
       // POST /api/push/subscribe - Suscribir a notificaciones push
       if (path === "/api/push/subscribe" && method === "POST") {
         const body = await req.json();
-        const { endpoint, keys } = body;
+        const { endpoint, keys, clientToken: bodyClientToken } = body;
 
         if (!endpoint || !keys?.p256dh || !keys?.auth) {
           return new Response(
@@ -797,14 +797,16 @@ const server = Bun.serve({
         }
 
         // Si el usuario está logueado, asociar la suscripción con su clerkUserId
-        const clerkUserId = await verifyClerkToken(req);
+        const clerkUserId = await verifyClerkToken(req).catch(() => null);
+        // clientToken identifica usuarios anónimos para poder notificarles cuando alguien les responde
+        const clientToken = bodyClientToken || null;
 
         await db.query(
-          `INSERT INTO "PushSubscription" (id, endpoint, p256dh, auth, "clerkUserId", "createdAt", "updatedAt")
-           VALUES (gen_random_uuid(), $1, $2, $3, $4, NOW(), NOW())
+          `INSERT INTO "PushSubscription" (id, endpoint, p256dh, auth, "clerkUserId", "clientToken", "createdAt", "updatedAt")
+           VALUES (gen_random_uuid(), $1, $2, $3, $4, $5, NOW(), NOW())
            ON CONFLICT (endpoint) DO UPDATE SET
-           p256dh = $2, auth = $3, "clerkUserId" = $4, "updatedAt" = NOW()`,
-          [endpoint, keys.p256dh, keys.auth, clerkUserId],
+           p256dh = $2, auth = $3, "clerkUserId" = $4, "clientToken" = $5, "updatedAt" = NOW()`,
+          [endpoint, keys.p256dh, keys.auth, clerkUserId, clientToken],
         );
 
         return new Response(
@@ -2467,23 +2469,18 @@ La descripción debe:
         });
         await prisma.empleadoConversation.update({ where: { id: convId }, data: { updatedAt: new Date() } });
 
-        // Push notification al empleado cuando el cliente manda un mensaje
+        const preview = content.length > 60 ? content.slice(0, 60) + "…" : content;
+
+        // Push al empleado cuando el cliente manda un mensaje
         if (senderType === "client" && convo.empleado.clerkUserId) {
           try {
             const subs = await prisma.pushSubscription.findMany({ where: { clerkUserId: convo.empleado.clerkUserId } });
             console.log(`[push/empleado-msg] sending to ${subs.length} subs for ${convo.empleado.clerkUserId}`);
-            const preview = content.length > 60 ? content.slice(0, 60) + "…" : content;
             await Promise.allSettled(subs.map(async (sub) => {
               try {
                 await webPush.sendNotification(
                   { endpoint: sub.endpoint, keys: { p256dh: sub.p256dh, auth: sub.auth } },
-                  JSON.stringify({
-                    title: "Nuevo mensaje",
-                    body: preview,
-                    url: `/chat/empleado/${convId}`,
-                    icon: "/icon-192x192.png",
-                    tag: `empleado-${convId}`,
-                  })
+                  JSON.stringify({ title: "Nuevo mensaje", body: preview, url: `/chat/empleado/${convId}`, icon: "/icon-192x192.png", tag: `empleado-${convId}` })
                 );
               } catch (err: any) {
                 console.error(`[push/empleado-msg] ERROR ${err.statusCode}`, err.body ?? err.message);
@@ -2493,6 +2490,27 @@ La descripción debe:
               }
             }));
           } catch (e) { console.error("[push/empleado-msg] unexpected:", e); }
+        }
+
+        // Push al cliente cuando el empleado responde
+        if (senderType === "professional" && convo.clientToken) {
+          try {
+            const subs = await prisma.pushSubscription.findMany({
+              where: { OR: [{ clientToken: convo.clientToken }, { clerkUserId: convo.clientToken }] },
+            });
+            await Promise.allSettled(subs.map(async (sub) => {
+              try {
+                await webPush.sendNotification(
+                  { endpoint: sub.endpoint, keys: { p256dh: sub.p256dh, auth: sub.auth } },
+                  JSON.stringify({ title: "Te respondieron", body: preview, url: `/chat/empleado/${convId}`, icon: "/icon-192x192.png", tag: `empleado-${convId}` })
+                );
+              } catch (err: any) {
+                if (err.statusCode === 410 || err.statusCode === 404) {
+                  await prisma.pushSubscription.delete({ where: { endpoint: sub.endpoint } }).catch(() => {});
+                }
+              }
+            }));
+          } catch (e) { console.error("[push/empleado-client-reply] unexpected:", e); }
         }
 
         return new Response(JSON.stringify(msg), { status: 201, headers: { ...corsHeaders, "Content-Type": "application/json" } });
@@ -2688,6 +2706,52 @@ La descripción debe:
           data: { conversationId: convId, senderType, content },
         });
         await prisma.vacanteConversation.update({ where: { id: convId }, data: { updatedAt: new Date() } });
+
+        const preview = content.length > 60 ? content.slice(0, 60) + "…" : content;
+
+        // Push al comercio cuando el cliente manda un mensaje
+        if (senderType === "client") {
+          try {
+            const comercioClerkId = convo.vacante.comercio.clerkUserId;
+            if (comercioClerkId) {
+              const subs = await prisma.pushSubscription.findMany({ where: { clerkUserId: comercioClerkId } });
+              await Promise.allSettled(subs.map(async (sub) => {
+                try {
+                  await webPush.sendNotification(
+                    { endpoint: sub.endpoint, keys: { p256dh: sub.p256dh, auth: sub.auth } },
+                    JSON.stringify({ title: "Nuevo mensaje en vacante", body: preview, url: `/chat/vacante/${convId}`, icon: "/icon-192x192.png", tag: `vacante-${convId}` })
+                  );
+                } catch (err: any) {
+                  if (err.statusCode === 410 || err.statusCode === 404) {
+                    await prisma.pushSubscription.delete({ where: { endpoint: sub.endpoint } }).catch(() => {});
+                  }
+                }
+              }));
+            }
+          } catch (e) { console.error("[push/vacante-msg] unexpected:", e); }
+        }
+
+        // Push al cliente cuando el comercio responde
+        if (senderType === "professional" && convo.clientToken) {
+          try {
+            const subs = await prisma.pushSubscription.findMany({
+              where: { OR: [{ clientToken: convo.clientToken }, { clerkUserId: convo.clientToken }] },
+            });
+            await Promise.allSettled(subs.map(async (sub) => {
+              try {
+                await webPush.sendNotification(
+                  { endpoint: sub.endpoint, keys: { p256dh: sub.p256dh, auth: sub.auth } },
+                  JSON.stringify({ title: "Te respondieron", body: preview, url: `/chat/vacante/${convId}`, icon: "/icon-192x192.png", tag: `vacante-${convId}` })
+                );
+              } catch (err: any) {
+                if (err.statusCode === 410 || err.statusCode === 404) {
+                  await prisma.pushSubscription.delete({ where: { endpoint: sub.endpoint } }).catch(() => {});
+                }
+              }
+            }));
+          } catch (e) { console.error("[push/vacante-client-reply] unexpected:", e); }
+        }
+
         return new Response(JSON.stringify(msg), { status: 201, headers: { ...corsHeaders, "Content-Type": "application/json" } });
       }
 
@@ -3526,52 +3590,65 @@ La descripción debe:
         JSON.stringify({ type: "message", data: message }),
       );
 
-      // Push notification al profesional cuando el cliente manda un mensaje
-      if (senderType === "client") {
-        try {
-          const conv = await prisma.conversation.findUnique({
-            where: { id: conversationId },
-            select: { professionalId: true },
-          });
-          if (!conv) { console.log("[push] conv not found:", conversationId); }
-          if (conv) {
+      // Push notification
+      {
+        const conv = await prisma.conversation.findUnique({
+          where: { id: conversationId },
+          select: { professionalId: true, clientToken: true },
+        });
+
+        // Push al profesional cuando el cliente manda un mensaje
+        if (senderType === "client" && conv) {
+          try {
             const pro = await prisma.professional.findUnique({
               where: { id: conv.professionalId },
               select: { clerkUserId: true },
             });
-            if (!pro?.clerkUserId) { console.log("[push] pro has no clerkUserId:", conv.professionalId); }
             if (pro?.clerkUserId) {
-              const subs = await prisma.pushSubscription.findMany({
-                where: { clerkUserId: pro.clerkUserId },
-              });
+              const subs = await prisma.pushSubscription.findMany({ where: { clerkUserId: pro.clerkUserId } });
               console.log(`[push] sending to ${subs.length} subscriptions for ${pro.clerkUserId}`);
-              const preview = content.trim().length > 60
-                ? content.trim().slice(0, 60) + "…"
-                : content.trim();
+              const preview = content.trim().length > 60 ? content.trim().slice(0, 60) + "…" : content.trim();
               const results = await Promise.allSettled(subs.map(sub =>
                 webPush.sendNotification(
                   { endpoint: sub.endpoint, keys: { p256dh: sub.p256dh, auth: sub.auth } },
-                  JSON.stringify({
-                    title: "Nuevo mensaje",
-                    body: preview,
-                    url: `/chat/${conversationId}`,
-                    icon: "/icon-192x192.png",
-                    tag: `chat-${conversationId}`,
-                  })
+                  JSON.stringify({ title: "Nuevo mensaje", body: preview, url: `/chat/${conversationId}`, icon: "/icon-192x192.png", tag: `chat-${conversationId}` })
                 ).catch(async (err: any) => {
                   console.error("[push] sendNotification error:", err.statusCode, err.body ?? err.message);
-                  if (err.statusCode === 410) {
-                    await prisma.pushSubscription.delete({ where: { endpoint: sub.endpoint } });
+                  if (err.statusCode === 410 || err.statusCode === 404) {
+                    await prisma.pushSubscription.delete({ where: { endpoint: sub.endpoint } }).catch(() => {});
                   }
                 })
               ));
               console.log("[push] results:", results.map(r => r.status));
             }
-          }
-        } catch (e) {
-          console.error("[push] unexpected error:", e);
+          } catch (e) { console.error("[push] unexpected error:", e); }
+        }
+
+        // Push al cliente (anónimo o logueado) cuando el profesional responde
+        if (senderType === "professional" && conv?.clientToken) {
+          try {
+            const subs = await prisma.pushSubscription.findMany({
+              where: { OR: [{ clientToken: conv.clientToken }, { clerkUserId: conv.clientToken }] },
+            });
+            if (subs.length > 0) {
+              const preview = content.trim().length > 60 ? content.trim().slice(0, 60) + "…" : content.trim();
+              await Promise.allSettled(subs.map(async (sub) => {
+                try {
+                  await webPush.sendNotification(
+                    { endpoint: sub.endpoint, keys: { p256dh: sub.p256dh, auth: sub.auth } },
+                    JSON.stringify({ title: "Te respondieron", body: preview, url: `/chat/${conversationId}`, icon: "/icon-192x192.png", tag: `chat-${conversationId}` })
+                  );
+                } catch (err: any) {
+                  if (err.statusCode === 410 || err.statusCode === 404) {
+                    await prisma.pushSubscription.delete({ where: { endpoint: sub.endpoint } }).catch(() => {});
+                  }
+                }
+              }));
+            }
+          } catch (e) { console.error("[push/client-reply] unexpected error:", e); }
         }
       }
+
     },
 
     close(ws) {

@@ -193,10 +193,12 @@ model PushSubscription {
   p256dh      String
   auth        String
   clerkUserId String?
+  clientToken String?
   createdAt   DateTime @default(now())
   updatedAt   DateTime
 
   @@index([clerkUserId])
+  @@index([clientToken])
 }
 
 model Rating {
