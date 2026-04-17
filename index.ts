@@ -87,8 +87,10 @@ function sanitizeText(input: unknown, maxLength = 1000): string {
 async function verifyClerkToken(req: Request): Promise<string | null> {
   const authHeader = req.headers.get("Authorization");
   if (!authHeader?.startsWith("Bearer ")) return null;
+  const token = authHeader.slice(7);
+  // Si no tiene forma de JWT (3 partes separadas por puntos), no intentar verificar
+  if (token.split(".").length !== 3) return null;
   try {
-    const token = authHeader.slice(7);
     const payload = await verifyToken(token, {
       secretKey: process.env.CLERK_SECRET_KEY!,
       authorizedParties: [
@@ -97,8 +99,10 @@ async function verifyClerkToken(req: Request): Promise<string | null> {
       ],
     });
     return payload.sub;
-  } catch (e) {
-    console.error("[verifyClerkToken] error:", e);
+  } catch (e: any) {
+    // token-expired y token-invalid son casos normales (refresh de Clerk), no loguear
+    if (e?.reason === "token-expired" || e?.reason === "token-invalid") return null;
+    console.error("[verifyClerkToken] unexpected error:", e);
     return null;
   }
 }
