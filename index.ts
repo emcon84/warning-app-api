@@ -2466,6 +2466,35 @@ La descripción debe:
           data: { conversationId: convId, senderType, content },
         });
         await prisma.empleadoConversation.update({ where: { id: convId }, data: { updatedAt: new Date() } });
+
+        // Push notification al empleado cuando el cliente manda un mensaje
+        if (senderType === "client" && convo.empleado.clerkUserId) {
+          try {
+            const subs = await prisma.pushSubscription.findMany({ where: { clerkUserId: convo.empleado.clerkUserId } });
+            console.log(`[push/empleado-msg] sending to ${subs.length} subs for ${convo.empleado.clerkUserId}`);
+            const preview = content.length > 60 ? content.slice(0, 60) + "…" : content;
+            await Promise.allSettled(subs.map(async (sub) => {
+              try {
+                await webPush.sendNotification(
+                  { endpoint: sub.endpoint, keys: { p256dh: sub.p256dh, auth: sub.auth } },
+                  JSON.stringify({
+                    title: "Nuevo mensaje",
+                    body: preview,
+                    url: `/chat/empleado/${convId}`,
+                    icon: "/icon-192x192.png",
+                    tag: `empleado-${convId}`,
+                  })
+                );
+              } catch (err: any) {
+                console.error(`[push/empleado-msg] ERROR ${err.statusCode}`, err.body ?? err.message);
+                if (err.statusCode === 410 || err.statusCode === 404) {
+                  await prisma.pushSubscription.delete({ where: { endpoint: sub.endpoint } }).catch(() => {});
+                }
+              }
+            }));
+          } catch (e) { console.error("[push/empleado-msg] unexpected:", e); }
+        }
+
         return new Response(JSON.stringify(msg), { status: 201, headers: { ...corsHeaders, "Content-Type": "application/json" } });
       }
 
@@ -3107,22 +3136,30 @@ La descripción debe:
           const professional = await prisma.professional.findUnique({ where: { id: professionalId } });
           if (professional?.clerkUserId) {
             const subs = await prisma.pushSubscription.findMany({ where: { clerkUserId: professional.clerkUserId } });
+            console.log(`[push/nuevo-contacto] sending to ${subs.length} subs for ${professional.clerkUserId}`);
             const preview = firstMessage.length > 60 ? firstMessage.slice(0, 60) + "…" : firstMessage;
-            await Promise.allSettled(subs.map(sub =>
-              webPush.sendNotification(
-                { endpoint: sub.endpoint, keys: { p256dh: sub.p256dh, auth: sub.auth } },
-                JSON.stringify({
-                  title: "Nuevo contacto",
-                  body: preview,
-                  url: `/chat/${conversation.id}`,
-                  icon: "/icon-192x192.png",
-                })
-              ).catch(async (err: any) => {
-                if (err.statusCode === 410) await prisma.pushSubscription.delete({ where: { endpoint: sub.endpoint } });
-              })
-            ));
+            const results = await Promise.allSettled(subs.map(async (sub) => {
+              try {
+                await webPush.sendNotification(
+                  { endpoint: sub.endpoint, keys: { p256dh: sub.p256dh, auth: sub.auth } },
+                  JSON.stringify({
+                    title: "Nuevo contacto",
+                    body: preview,
+                    url: `/chat/${conversation.id}`,
+                    icon: "/icon-192x192.png",
+                  })
+                );
+                console.log(`[push/nuevo-contacto] OK → ${sub.endpoint.slice(0, 60)}`);
+              } catch (err: any) {
+                console.error(`[push/nuevo-contacto] ERROR ${err.statusCode} → ${sub.endpoint.slice(0, 60)}`, err.body ?? err.message);
+                if (err.statusCode === 410 || err.statusCode === 404) {
+                  await prisma.pushSubscription.delete({ where: { endpoint: sub.endpoint } }).catch(() => {});
+                }
+              }
+            }));
+            console.log(`[push/nuevo-contacto] done: ${results.map(r => r.status).join(", ")}`);
           }
-        } catch {}
+        } catch (e) { console.error("[push/nuevo-contacto] unexpected:", e); }
 
         // Enviar email al profesional via Resend
         if (resend) {
