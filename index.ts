@@ -163,6 +163,9 @@ webPush.setVapidDetails(
   process.env.VAPID_PRIVATE_KEY!,
 );
 
+// Opciones de push: urgency high para que FCM entregue inmediatamente aunque la pantalla esté apagada
+const PUSH_OPTIONS = { urgency: "high" as const, TTL: 60 };
+
 // Tipos
 type ReportCategory =
   | "basura"
@@ -562,6 +565,7 @@ const server = Bun.serve({
                   },
                 },
                 notificationPayload,
+                PUSH_OPTIONS,
               );
             } catch (error: any) {
               console.error("Error enviando notificación:", error);
@@ -1692,6 +1696,7 @@ out 1;`;
             await webPush.sendNotification(
               { endpoint: sub.endpoint, keys: { p256dh: sub.p256dh, auth: sub.auth } },
               JSON.stringify({ title: `Reporte por voz: ${categoria}`, body: descripcion, url: "/" }),
+              PUSH_OPTIONS,
             ).catch(() => {});
           }
         } catch {}
@@ -2484,7 +2489,8 @@ La descripción debe:
               try {
                 await webPush.sendNotification(
                   { endpoint: sub.endpoint, keys: { p256dh: sub.p256dh, auth: sub.auth } },
-                  JSON.stringify({ title: "Nuevo mensaje", body: preview, url: `/chat/empleado/${convId}`, icon: "/icon-192x192.png", tag: `empleado-${convId}` })
+                  JSON.stringify({ title: "Nuevo mensaje", body: preview, url: `/chat/empleado/${convId}`, icon: "/icon-192x192.png", tag: `empleado-${convId}` }),
+                  PUSH_OPTIONS,
                 );
               } catch (err: any) {
                 console.error(`[push/empleado-msg] ERROR ${err.statusCode}`, err.body ?? err.message);
@@ -2506,7 +2512,8 @@ La descripción debe:
               try {
                 await webPush.sendNotification(
                   { endpoint: sub.endpoint, keys: { p256dh: sub.p256dh, auth: sub.auth } },
-                  JSON.stringify({ title: "Te respondieron", body: preview, url: `/chat/empleado/${convId}`, icon: "/icon-192x192.png", tag: `empleado-${convId}` })
+                  JSON.stringify({ title: "Te respondieron", body: preview, url: `/chat/empleado/${convId}`, icon: "/icon-192x192.png", tag: `empleado-${convId}` }),
+                  PUSH_OPTIONS,
                 );
               } catch (err: any) {
                 if (err.statusCode === 410 || err.statusCode === 404) {
@@ -2723,7 +2730,8 @@ La descripción debe:
                 try {
                   await webPush.sendNotification(
                     { endpoint: sub.endpoint, keys: { p256dh: sub.p256dh, auth: sub.auth } },
-                    JSON.stringify({ title: "Nuevo mensaje en vacante", body: preview, url: `/chat/vacante/${convId}`, icon: "/icon-192x192.png", tag: `vacante-${convId}` })
+                    JSON.stringify({ title: "Nuevo mensaje en vacante", body: preview, url: `/chat/vacante/${convId}`, icon: "/icon-192x192.png", tag: `vacante-${convId}` }),
+                    PUSH_OPTIONS,
                   );
                 } catch (err: any) {
                   if (err.statusCode === 410 || err.statusCode === 404) {
@@ -2745,7 +2753,8 @@ La descripción debe:
               try {
                 await webPush.sendNotification(
                   { endpoint: sub.endpoint, keys: { p256dh: sub.p256dh, auth: sub.auth } },
-                  JSON.stringify({ title: "Te respondieron", body: preview, url: `/chat/vacante/${convId}`, icon: "/icon-192x192.png", tag: `vacante-${convId}` })
+                  JSON.stringify({ title: "Te respondieron", body: preview, url: `/chat/vacante/${convId}`, icon: "/icon-192x192.png", tag: `vacante-${convId}` }),
+                  PUSH_OPTIONS,
                 );
               } catch (err: any) {
                 if (err.statusCode === 410 || err.statusCode === 404) {
@@ -3215,7 +3224,8 @@ La descripción debe:
                     body: preview,
                     url: `/chat/${conversation.id}`,
                     icon: "/icon-192x192.png",
-                  })
+                  }),
+                  PUSH_OPTIONS,
                 );
                 console.log(`[push/nuevo-contacto] OK → ${sub.endpoint.slice(0, 60)}`);
               } catch (err: any) {
@@ -3615,7 +3625,8 @@ La descripción debe:
               const results = await Promise.allSettled(subs.map(sub =>
                 webPush.sendNotification(
                   { endpoint: sub.endpoint, keys: { p256dh: sub.p256dh, auth: sub.auth } },
-                  JSON.stringify({ title: "Nuevo mensaje", body: preview, url: `/chat/${conversationId}`, icon: "/icon-192x192.png", tag: `chat-${conversationId}` })
+                  JSON.stringify({ title: "Nuevo mensaje", body: preview, url: `/chat/${conversationId}`, icon: "/icon-192x192.png", tag: `chat-${conversationId}` }),
+                PUSH_OPTIONS,
                 ).catch(async (err: any) => {
                   console.error("[push] sendNotification error:", err.statusCode, err.body ?? err.message);
                   if (err.statusCode === 410 || err.statusCode === 404) {
@@ -3640,7 +3651,8 @@ La descripción debe:
                 try {
                   await webPush.sendNotification(
                     { endpoint: sub.endpoint, keys: { p256dh: sub.p256dh, auth: sub.auth } },
-                    JSON.stringify({ title: "Te respondieron", body: preview, url: `/chat/${conversationId}`, icon: "/icon-192x192.png", tag: `chat-${conversationId}` })
+                    JSON.stringify({ title: "Te respondieron", body: preview, url: `/chat/${conversationId}`, icon: "/icon-192x192.png", tag: `chat-${conversationId}` }),
+                    PUSH_OPTIONS,
                   );
                 } catch (err: any) {
                   if (err.statusCode === 410 || err.statusCode === 404) {
