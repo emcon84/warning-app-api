@@ -295,6 +295,7 @@ model Comercio {
   telefono    String?
   horario     String?
   foto        String?
+  logo        String?
   fotos       String[]        @default([])
   activo      Boolean         @default(true)
   createdAt   DateTime        @default(now())
