@@ -2148,7 +2148,7 @@ La descripción debe:
         if (!clerkUserId) return new Response(JSON.stringify({ error: "No autorizado" }), { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } });
         const comercio = await prisma.comercio.findUnique({
           where: { clerkUserId },
-          select: { id: true, nombre: true, rubro: true, slug: true, descripcion: true, direccion: true, barrio: true, whatsapp: true, telefono: true, horario: true, foto: true, fotos: true, activo: true, createdAt: true, updatedAt: true },
+          select: { id: true, nombre: true, rubro: true, slug: true, descripcion: true, direccion: true, barrio: true, whatsapp: true, telefono: true, horario: true, foto: true, fotos: true, logo: true, activo: true, createdAt: true, updatedAt: true, offers: { orderBy: { createdAt: "desc" } } },
         });
         if (!comercio) return new Response(JSON.stringify({ error: "No tenés un comercio registrado" }), { status: 404, headers: { ...corsHeaders, "Content-Type": "application/json" } });
         return new Response(JSON.stringify(comercio), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
@@ -2216,6 +2216,7 @@ La descripción debe:
         const titulo = sanitizeText(formData.get("titulo") as string, 150);
         if (!titulo) return new Response(JSON.stringify({ error: "El título es obligatorio" }), { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } });
         const descripcion = sanitizeText(formData.get("descripcion") as string, 500) || undefined;
+        const terminos = sanitizeText(formData.get("terminos") as string, 1000) || undefined;
         const precio = sanitizeText(formData.get("precio") as string, 50) || undefined;
         const validaHastaRaw = formData.get("validaHasta") as string | null;
         const validaHasta = validaHastaRaw ? new Date(validaHastaRaw) : undefined;
@@ -2228,7 +2229,7 @@ La descripción debe:
           fotoUrl = "/uploads/" + filename;
         }
         const offer = await prisma.comercioOffer.create({
-          data: { comercioId: comercio.id, titulo, descripcion, precio, foto: fotoUrl, validaHasta },
+          data: { comercioId: comercio.id, titulo, descripcion, terminos, precio, foto: fotoUrl, validaHasta },
         });
         return new Response(JSON.stringify(offer), { status: 201, headers: { ...corsHeaders, "Content-Type": "application/json" } });
       }
@@ -2268,6 +2269,7 @@ La descripción debe:
         const titulo = sanitizeText(formData.get("titulo") as string, 150);
         if (!titulo) return new Response(JSON.stringify({ error: "El título es obligatorio" }), { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } });
         const descripcion = sanitizeText(formData.get("descripcion") as string, 500) || null;
+        const terminos = sanitizeText(formData.get("terminos") as string, 1000) || null;
         const precio = sanitizeText(formData.get("precio") as string, 50) || null;
         const validaHastaRaw = formData.get("validaHasta") as string | null;
         const validaHasta = validaHastaRaw ? new Date(validaHastaRaw) : null;
@@ -2284,7 +2286,7 @@ La descripción debe:
         }
         const updated = await prisma.comercioOffer.update({
           where: { id: offerId },
-          data: { titulo, descripcion, precio, validaHasta, ...(fotoUrl !== undefined ? { foto: fotoUrl } : {}) },
+          data: { titulo, descripcion, terminos, precio, validaHasta, ...(fotoUrl !== undefined ? { foto: fotoUrl } : {}) },
         });
         return new Response(JSON.stringify(updated), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
       }
@@ -2301,6 +2303,18 @@ La descripción debe:
         const fotosActualizadas = comercio.fotos.filter((f) => f !== fotoUrl);
         await prisma.comercio.update({ where: { clerkUserId }, data: { fotos: fotosActualizadas } });
         return new Response(JSON.stringify({ ok: true }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      }
+
+      // GET /api/comercios/:slug/offers/:offerId — detalle de oferta (público)
+      if (path.match(/^\/api\/comercios\/[^/]+\/offers\/[^/]+$/) && method === "GET") {
+        const parts = path.split("/");
+        const slug = parts[3];
+        const offerId = parts[5];
+        const comercio = await prisma.comercio.findUnique({ where: { slug }, select: { id: true, nombre: true, slug: true, logo: true, whatsapp: true, rubro: true } });
+        if (!comercio) return new Response(JSON.stringify({ error: "Comercio no encontrado" }), { status: 404, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+        const offer = await prisma.comercioOffer.findUnique({ where: { id: offerId } });
+        if (!offer || offer.comercioId !== comercio.id || !offer.activa) return new Response(JSON.stringify({ error: "Oferta no encontrada" }), { status: 404, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+        return new Response(JSON.stringify({ ...offer, comercio }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
       }
 
       // GET /api/comercios/:slug/offers — listar ofertas activas de un comercio (público)

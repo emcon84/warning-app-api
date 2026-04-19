@@ -312,6 +312,7 @@ model ComercioOffer {
   comercioId  String
   titulo      String
   descripcion String?
+  terminos    String?
   precio      String?
   foto        String?
   validaHasta DateTime?
