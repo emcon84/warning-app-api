@@ -2246,6 +2246,49 @@ La descripción debe:
         return new Response(JSON.stringify({ ok: true }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
       }
 
+      // PATCH /api/comercios/me/offers/:offerId — editar o toggle oferta (requiere auth)
+      if (path.match(/^\/api\/comercios\/me\/offers\/[^/]+$/) && method === "PATCH") {
+        const clerkUserId = await verifyClerkToken(req);
+        if (!clerkUserId) return new Response(JSON.stringify({ error: "No autorizado" }), { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+        const offerId = path.split("/api/comercios/me/offers/")[1];
+        const comercio = await prisma.comercio.findUnique({ where: { clerkUserId } });
+        if (!comercio) return new Response(JSON.stringify({ error: "No tenés un comercio registrado" }), { status: 404, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+        const offer = await prisma.comercioOffer.findUnique({ where: { id: offerId } });
+        if (!offer || offer.comercioId !== comercio.id) return new Response(JSON.stringify({ error: "Oferta no encontrada" }), { status: 404, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+        const contentType = req.headers.get("content-type") ?? "";
+        if (contentType.includes("application/json")) {
+          const body = await req.json();
+          const updated = await prisma.comercioOffer.update({
+            where: { id: offerId },
+            data: { activa: typeof body.activa === "boolean" ? body.activa : undefined },
+          });
+          return new Response(JSON.stringify(updated), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+        }
+        const formData = await req.formData();
+        const titulo = sanitizeText(formData.get("titulo") as string, 150);
+        if (!titulo) return new Response(JSON.stringify({ error: "El título es obligatorio" }), { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+        const descripcion = sanitizeText(formData.get("descripcion") as string, 500) || null;
+        const precio = sanitizeText(formData.get("precio") as string, 50) || null;
+        const validaHastaRaw = formData.get("validaHasta") as string | null;
+        const validaHasta = validaHastaRaw ? new Date(validaHastaRaw) : null;
+        let fotoUrl: string | null | undefined;
+        const photoFile = formData.get("photo") as File | null;
+        const clearPhoto = formData.get("clearPhoto") as string | null;
+        if (photoFile && photoFile.size > 0) {
+          const ext = photoFile.name.split(".").pop()?.toLowerCase() || "jpg";
+          const filename = `comercio_${crypto.randomUUID()}.${ext}`;
+          await Bun.write(join(uploadsDir, filename), await photoFile.arrayBuffer());
+          fotoUrl = "/uploads/" + filename;
+        } else if (clearPhoto === "1") {
+          fotoUrl = null;
+        }
+        const updated = await prisma.comercioOffer.update({
+          where: { id: offerId },
+          data: { titulo, descripcion, precio, validaHasta, ...(fotoUrl !== undefined ? { foto: fotoUrl } : {}) },
+        });
+        return new Response(JSON.stringify(updated), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      }
+
       // DELETE /api/comercios/me/fotos — eliminar foto de galería (requiere auth)
       if (path === "/api/comercios/me/fotos" && method === "DELETE") {
         const clerkUserId = await verifyClerkToken(req);
