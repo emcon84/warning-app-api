@@ -2304,6 +2304,8 @@ La descripción debe:
         if (!nombre) return new Response(JSON.stringify({ error: "El nombre es obligatorio" }), { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } });
         const descripcion = sanitizeText(formData.get("descripcion") as string, 500) || null;
         const precio = sanitizeText(formData.get("precio") as string, 50) || null;
+        const tipoRaw = formData.get("tipo") as string | null;
+        const tipo = tipoRaw === "servicio" ? "servicio" : "producto";
         let foto: string | null = null;
         const photoFile = formData.get("photo") as File | null;
         if (photoFile && photoFile.size > 0) {
@@ -2312,7 +2314,7 @@ La descripción debe:
           await Bun.write(join(uploadsDir, filename), await photoFile.arrayBuffer());
           foto = "/uploads/" + filename;
         }
-        const producto = await prisma.producto.create({ data: { comercioId: comercio.id, nombre, descripcion, precio, foto } });
+        const producto = await prisma.producto.create({ data: { comercioId: comercio.id, nombre, tipo, descripcion, precio, foto } });
         return new Response(JSON.stringify(producto), { status: 201, headers: { ...corsHeaders, "Content-Type": "application/json" } });
       }
 
@@ -2336,6 +2338,8 @@ La descripción debe:
         if (!nombre) return new Response(JSON.stringify({ error: "El nombre es obligatorio" }), { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } });
         const descripcion = sanitizeText(formData.get("descripcion") as string, 500) || null;
         const precio = sanitizeText(formData.get("precio") as string, 50) || null;
+        const tipoRaw = formData.get("tipo") as string | null;
+        const tipo = tipoRaw === "servicio" ? "servicio" : "producto";
         let fotoUrl: string | null | undefined;
         const photoFile = formData.get("photo") as File | null;
         const clearPhoto = formData.get("clearPhoto") as string | null;
@@ -2347,7 +2351,7 @@ La descripción debe:
         } else if (clearPhoto === "1") {
           fotoUrl = null;
         }
-        const updated = await prisma.producto.update({ where: { id: productoId }, data: { nombre, descripcion, precio, ...(fotoUrl !== undefined ? { foto: fotoUrl } : {}) } });
+        const updated = await prisma.producto.update({ where: { id: productoId }, data: { nombre, tipo, descripcion, precio, ...(fotoUrl !== undefined ? { foto: fotoUrl } : {}) } });
         return new Response(JSON.stringify(updated), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
       }
 
