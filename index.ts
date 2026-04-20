@@ -3413,6 +3413,29 @@ La descripción debe:
         });
       }
 
+      // DELETE /api/conversations/:id — eliminar conversación (cliente por clientToken o profesional por Clerk)
+      if (path.match(/^\/api\/conversations\/[^/]+$/) && method === "DELETE") {
+        const conversationId = path.split("/api/conversations/")[1];
+        const conversation = await prisma.conversation.findUnique({ where: { id: conversationId } });
+        if (!conversation) return new Response(JSON.stringify({ error: "No encontrada" }), { status: 404, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+
+        const clientToken = url.searchParams.get("clientToken");
+        const clerkUserId = await verifyClerkToken(req);
+
+        const isClient = clientToken && conversation.clientToken === clientToken;
+        const isProfessional = clerkUserId
+          ? !!(await prisma.professional.findFirst({ where: { clerkUserId, id: conversation.professionalId } }))
+          : false;
+
+        if (!isClient && !isProfessional) {
+          return new Response(JSON.stringify({ error: "No autorizado" }), { status: 403, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+        }
+
+        await prisma.message.deleteMany({ where: { conversationId } });
+        await prisma.conversation.delete({ where: { id: conversationId } });
+        return new Response(JSON.stringify({ ok: true }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      }
+
       // GET /api/conversations/:id — detalle con mensajes
       if (path.startsWith("/api/conversations/") && method === "GET") {
         const conversationId = path.split("/api/conversations/")[1];
