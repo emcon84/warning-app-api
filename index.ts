@@ -95,6 +95,7 @@ async function verifyClerkToken(req: Request): Promise<string | null> {
       secretKey: process.env.CLERK_SECRET_KEY!,
       authorizedParties: [
         "http://localhost:3000",
+        "http://reportesreconquista.com",
         "https://reportesreconquista.com",
       ],
     });
