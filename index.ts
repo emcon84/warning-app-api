@@ -2412,9 +2412,9 @@ La descripción debe:
         const slug = path.split("/api/comercios/")[1];
         const comercio = await prisma.comercio.findUnique({
           where: { slug },
-          select: { id: true, nombre: true, rubro: true, slug: true, barrio: true, descripcion: true, direccion: true, horario: true, whatsapp: true, telefono: true, foto: true, fotos: true, activo: true, createdAt: true,
+          select: { id: true, nombre: true, rubro: true, slug: true, barrio: true, descripcion: true, direccion: true, horario: true, whatsapp: true, telefono: true, foto: true, logo: true, fotos: true, activo: true, createdAt: true,
             offers: { where: { activa: true }, select: { id: true, titulo: true, descripcion: true, precio: true, foto: true, validaHasta: true, createdAt: true }, orderBy: { createdAt: "desc" } },
-            productos: { where: { activo: true }, select: { id: true, nombre: true, descripcion: true, precio: true, foto: true, createdAt: true }, orderBy: { createdAt: "desc" } },
+            productos: { where: { activo: true }, select: { id: true, nombre: true, tipo: true, descripcion: true, precio: true, foto: true, createdAt: true }, orderBy: { createdAt: "desc" } },
           },
         });
         if (!comercio) return new Response(JSON.stringify({ error: "Comercio no encontrado" }), { status: 404, headers: { ...corsHeaders, "Content-Type": "application/json" } });
