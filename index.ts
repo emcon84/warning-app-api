@@ -2836,7 +2836,7 @@ La descripción debe:
         if (!admins.includes(clerkUserId)) return new Response(JSON.stringify({ error: "Acceso denegado" }), { status: 403, headers: { ...corsHeaders, "Content-Type": "application/json" } });
         const professionals = await prisma.professional.findMany({
           orderBy: { createdAt: "desc" },
-          select: { id: true, nombre: true, apellido: true, slug: true, tipo: true, oficios: true, barrio: true, activo: true, ratingAvg: true, ratingCount: true, createdAt: true },
+          select: { id: true, nombre: true, apellido: true, slug: true, tipo: true, oficios: true, barrio: true, foto: true, activo: true, ratingAvg: true, ratingCount: true, createdAt: true },
         });
         return new Response(JSON.stringify(professionals), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
       }
@@ -2911,7 +2911,7 @@ La descripción debe:
         if (!admins.includes(clerkUserId)) return new Response(JSON.stringify({ error: "Acceso denegado" }), { status: 403, headers: { ...corsHeaders, "Content-Type": "application/json" } });
         const comercios = await prisma.comercio.findMany({
           orderBy: { createdAt: "desc" },
-          select: { id: true, nombre: true, rubro: true, slug: true, barrio: true, activo: true, createdAt: true },
+          select: { id: true, nombre: true, rubro: true, slug: true, barrio: true, foto: true, logo: true, activo: true, createdAt: true },
         });
         return new Response(JSON.stringify(comercios), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
       }
