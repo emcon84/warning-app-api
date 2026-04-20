@@ -3423,12 +3423,16 @@ La descripción debe:
         const clientToken = url.searchParams.get("clientToken");
         const clerkUserId = await verifyClerkToken(req);
 
-        const isClient = clientToken && conversation.clientToken === clientToken;
+        // Cliente anónimo: clientToken UUID en query param
+        const isAnonClient = !!(clientToken && conversation.clientToken === clientToken);
+        // Cliente logueado: Clerk userId guardado como clientToken al crear la conv
+        const isClerkClient = !!(clerkUserId && conversation.clientToken === clerkUserId);
+        // Profesional dueño de la conversación
         const isProfessional = clerkUserId
           ? !!(await prisma.professional.findFirst({ where: { clerkUserId, id: conversation.professionalId } }))
           : false;
 
-        if (!isClient && !isProfessional) {
+        if (!isAnonClient && !isClerkClient && !isProfessional) {
           return new Response(JSON.stringify({ error: "No autorizado" }), { status: 403, headers: { ...corsHeaders, "Content-Type": "application/json" } });
         }
 
