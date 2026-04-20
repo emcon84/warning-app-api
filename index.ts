@@ -2149,7 +2149,7 @@ La descripción debe:
         if (!clerkUserId) return new Response(JSON.stringify({ error: "No autorizado" }), { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } });
         const comercio = await prisma.comercio.findUnique({
           where: { clerkUserId },
-          select: { id: true, nombre: true, rubro: true, slug: true, descripcion: true, direccion: true, barrio: true, whatsapp: true, telefono: true, horario: true, foto: true, fotos: true, logo: true, activo: true, createdAt: true, updatedAt: true, offers: { orderBy: { createdAt: "desc" } } },
+          select: { id: true, nombre: true, rubro: true, slug: true, descripcion: true, direccion: true, barrio: true, whatsapp: true, telefono: true, horario: true, foto: true, fotos: true, logo: true, activo: true, createdAt: true, updatedAt: true, offers: { orderBy: { createdAt: "desc" } }, productos: { where: { activo: true }, orderBy: { createdAt: "desc" } } },
         });
         if (!comercio) return new Response(JSON.stringify({ error: "No tenés un comercio registrado" }), { status: 404, headers: { ...corsHeaders, "Content-Type": "application/json" } });
         return new Response(JSON.stringify(comercio), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
@@ -2292,6 +2292,78 @@ La descripción debe:
         return new Response(JSON.stringify(updated), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
       }
 
+      // POST /api/comercios/me/productos — crear producto (requiere auth)
+      if (path === "/api/comercios/me/productos" && method === "POST") {
+        if (!checkStrictRateLimit(req)) return new Response(JSON.stringify({ error: "Demasiadas solicitudes." }), { status: 429, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+        const clerkUserId = await verifyClerkToken(req);
+        if (!clerkUserId) return new Response(JSON.stringify({ error: "No autorizado" }), { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+        const comercio = await prisma.comercio.findUnique({ where: { clerkUserId } });
+        if (!comercio) return new Response(JSON.stringify({ error: "No tenés un comercio registrado" }), { status: 404, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+        const formData = await req.formData();
+        const nombre = sanitizeText(formData.get("nombre") as string, 150);
+        if (!nombre) return new Response(JSON.stringify({ error: "El nombre es obligatorio" }), { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+        const descripcion = sanitizeText(formData.get("descripcion") as string, 500) || null;
+        const precio = sanitizeText(formData.get("precio") as string, 50) || null;
+        let foto: string | null = null;
+        const photoFile = formData.get("photo") as File | null;
+        if (photoFile && photoFile.size > 0) {
+          const ext = photoFile.name.split(".").pop()?.toLowerCase() || "jpg";
+          const filename = `producto_${crypto.randomUUID()}.${ext}`;
+          await Bun.write(join(uploadsDir, filename), await photoFile.arrayBuffer());
+          foto = "/uploads/" + filename;
+        }
+        const producto = await prisma.producto.create({ data: { comercioId: comercio.id, nombre, descripcion, precio, foto } });
+        return new Response(JSON.stringify(producto), { status: 201, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      }
+
+      // PATCH /api/comercios/me/productos/:id — editar o toggle producto (requiere auth)
+      if (path.match(/^\/api\/comercios\/me\/productos\/[^/]+$/) && method === "PATCH") {
+        const clerkUserId = await verifyClerkToken(req);
+        if (!clerkUserId) return new Response(JSON.stringify({ error: "No autorizado" }), { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+        const productoId = path.split("/api/comercios/me/productos/")[1];
+        const comercio = await prisma.comercio.findUnique({ where: { clerkUserId } });
+        if (!comercio) return new Response(JSON.stringify({ error: "No tenés un comercio registrado" }), { status: 404, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+        const producto = await prisma.producto.findUnique({ where: { id: productoId } });
+        if (!producto || producto.comercioId !== comercio.id) return new Response(JSON.stringify({ error: "Producto no encontrado" }), { status: 404, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+        const contentType = req.headers.get("content-type") ?? "";
+        if (contentType.includes("application/json")) {
+          const body = await req.json();
+          const updated = await prisma.producto.update({ where: { id: productoId }, data: { activo: typeof body.activo === "boolean" ? body.activo : undefined } });
+          return new Response(JSON.stringify(updated), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+        }
+        const formData = await req.formData();
+        const nombre = sanitizeText(formData.get("nombre") as string, 150);
+        if (!nombre) return new Response(JSON.stringify({ error: "El nombre es obligatorio" }), { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+        const descripcion = sanitizeText(formData.get("descripcion") as string, 500) || null;
+        const precio = sanitizeText(formData.get("precio") as string, 50) || null;
+        let fotoUrl: string | null | undefined;
+        const photoFile = formData.get("photo") as File | null;
+        const clearPhoto = formData.get("clearPhoto") as string | null;
+        if (photoFile && photoFile.size > 0) {
+          const ext = photoFile.name.split(".").pop()?.toLowerCase() || "jpg";
+          const filename = `producto_${crypto.randomUUID()}.${ext}`;
+          await Bun.write(join(uploadsDir, filename), await photoFile.arrayBuffer());
+          fotoUrl = "/uploads/" + filename;
+        } else if (clearPhoto === "1") {
+          fotoUrl = null;
+        }
+        const updated = await prisma.producto.update({ where: { id: productoId }, data: { nombre, descripcion, precio, ...(fotoUrl !== undefined ? { foto: fotoUrl } : {}) } });
+        return new Response(JSON.stringify(updated), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      }
+
+      // DELETE /api/comercios/me/productos/:id — eliminar producto (requiere auth)
+      if (path.match(/^\/api\/comercios\/me\/productos\/[^/]+$/) && method === "DELETE") {
+        const clerkUserId = await verifyClerkToken(req);
+        if (!clerkUserId) return new Response(JSON.stringify({ error: "No autorizado" }), { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+        const productoId = path.split("/api/comercios/me/productos/")[1];
+        const comercio = await prisma.comercio.findUnique({ where: { clerkUserId } });
+        if (!comercio) return new Response(JSON.stringify({ error: "No tenés un comercio registrado" }), { status: 404, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+        const producto = await prisma.producto.findUnique({ where: { id: productoId } });
+        if (!producto || producto.comercioId !== comercio.id) return new Response(JSON.stringify({ error: "Producto no encontrado" }), { status: 404, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+        await prisma.producto.delete({ where: { id: productoId } });
+        return new Response(JSON.stringify({ ok: true }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      }
+
       // DELETE /api/comercios/me/fotos — eliminar foto de galería (requiere auth)
       if (path === "/api/comercios/me/fotos" && method === "DELETE") {
         const clerkUserId = await verifyClerkToken(req);
@@ -2338,6 +2410,7 @@ La descripción debe:
           where: { slug },
           select: { id: true, nombre: true, rubro: true, slug: true, barrio: true, descripcion: true, direccion: true, horario: true, whatsapp: true, telefono: true, foto: true, fotos: true, activo: true, createdAt: true,
             offers: { where: { activa: true }, select: { id: true, titulo: true, descripcion: true, precio: true, foto: true, validaHasta: true, createdAt: true }, orderBy: { createdAt: "desc" } },
+            productos: { where: { activo: true }, select: { id: true, nombre: true, descripcion: true, precio: true, foto: true, createdAt: true }, orderBy: { createdAt: "desc" } },
           },
         });
         if (!comercio) return new Response(JSON.stringify({ error: "Comercio no encontrado" }), { status: 404, headers: { ...corsHeaders, "Content-Type": "application/json" } });

@@ -301,6 +301,7 @@ model Comercio {
   createdAt   DateTime        @default(now())
   updatedAt   DateTime        @updatedAt
   offers      ComercioOffer[]
+  productos   Producto[]
   vacantes    Vacante[]
 
   @@index([barrio])
@@ -323,6 +324,21 @@ model ComercioOffer {
 
   @@index([comercioId])
   @@index([activa])
+}
+
+model Producto {
+  id          String   @id @default(cuid())
+  comercioId  String
+  nombre      String
+  descripcion String?
+  precio      String?
+  foto        String?
+  activo      Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  comercio    Comercio @relation(fields: [comercioId], references: [id], onDelete: Cascade)
+
+  @@index([comercioId])
+  @@index([activo])
 }
 
 model Empleado {
