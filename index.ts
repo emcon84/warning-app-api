@@ -2149,7 +2149,7 @@ La descripción debe:
         if (!clerkUserId) return new Response(JSON.stringify({ error: "No autorizado" }), { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } });
         const comercio = await prisma.comercio.findUnique({
           where: { clerkUserId },
-          select: { id: true, nombre: true, rubro: true, slug: true, descripcion: true, direccion: true, barrio: true, whatsapp: true, telefono: true, horario: true, foto: true, fotos: true, logo: true, activo: true, createdAt: true, updatedAt: true, offers: { orderBy: { createdAt: "desc" } }, productos: { where: { activo: true }, orderBy: { createdAt: "desc" } } },
+          select: { id: true, nombre: true, rubro: true, slug: true, descripcion: true, direccion: true, barrio: true, whatsapp: true, telefono: true, horario: true, foto: true, fotos: true, logo: true, activo: true, isPremium: true, createdAt: true, updatedAt: true, offers: { orderBy: { createdAt: "desc" } }, productos: { orderBy: { createdAt: "desc" } } },
         });
         if (!comercio) return new Response(JSON.stringify({ error: "No tenés un comercio registrado" }), { status: 404, headers: { ...corsHeaders, "Content-Type": "application/json" } });
         return new Response(JSON.stringify(comercio), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
@@ -2313,6 +2313,10 @@ La descripción debe:
           const filename = `producto_${crypto.randomUUID()}.${ext}`;
           await Bun.write(join(uploadsDir, filename), await photoFile.arrayBuffer());
           foto = "/uploads/" + filename;
+        }
+        if (!comercio.isPremium) {
+          const count = await prisma.producto.count({ where: { comercioId: comercio.id } });
+          if (count >= 10) return new Response(JSON.stringify({ error: "LIMIT_REACHED", message: "Alcanzaste el límite de 10 items en el plan gratuito." }), { status: 403, headers: { ...corsHeaders, "Content-Type": "application/json" } });
         }
         const producto = await prisma.producto.create({ data: { comercioId: comercio.id, nombre, tipo, descripcion, precio, foto } });
         return new Response(JSON.stringify(producto), { status: 201, headers: { ...corsHeaders, "Content-Type": "application/json" } });
@@ -2988,9 +2992,21 @@ La descripción debe:
         if (!admins.includes(clerkUserId)) return new Response(JSON.stringify({ error: "Acceso denegado" }), { status: 403, headers: { ...corsHeaders, "Content-Type": "application/json" } });
         const comercios = await prisma.comercio.findMany({
           orderBy: { createdAt: "desc" },
-          select: { id: true, nombre: true, rubro: true, slug: true, barrio: true, foto: true, logo: true, activo: true, createdAt: true },
+          select: { id: true, nombre: true, rubro: true, slug: true, barrio: true, foto: true, logo: true, activo: true, isPremium: true, createdAt: true },
         });
         return new Response(JSON.stringify(comercios), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      }
+
+      // PATCH /api/admin/comercios/:id/premium — toggle premium (requiere auth admin)
+      if (path.match(/^\/api\/admin\/comercios\/[^/]+\/premium$/) && method === "PATCH") {
+        const clerkUserId = await verifyClerkToken(req);
+        if (!clerkUserId) return new Response(JSON.stringify({ error: "No autorizado" }), { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+        const admins = (process.env.ADMIN_CLERK_IDS || "").split(",").map(s => s.trim()).filter(Boolean);
+        if (!admins.includes(clerkUserId)) return new Response(JSON.stringify({ error: "Acceso denegado" }), { status: 403, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+        const id = path.split("/")[4];
+        const body = await req.json();
+        const updated = await prisma.comercio.update({ where: { id }, data: { isPremium: !!body.isPremium } });
+        return new Response(JSON.stringify({ id: updated.id, isPremium: updated.isPremium }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
       }
 
       // DELETE /api/admin/comercios/:id — eliminar comercio (requiere auth admin)

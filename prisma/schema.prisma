@@ -298,6 +298,7 @@ model Comercio {
   logo        String?
   fotos       String[]        @default([])
   activo      Boolean         @default(true)
+  isPremium   Boolean         @default(false)
   createdAt   DateTime        @default(now())
   updatedAt   DateTime        @updatedAt
   offers      ComercioOffer[]
