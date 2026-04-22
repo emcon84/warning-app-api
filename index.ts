@@ -2182,8 +2182,8 @@ El mensaje debe:
             ...(barrio ? { barrio: { contains: barrio, mode: "insensitive" } } : {}),
             ...(rubro ? { rubro: { contains: rubro, mode: "insensitive" } } : {}),
           },
-          select: { id: true, nombre: true, rubro: true, slug: true, barrio: true, foto: true, logo: true, descripcion: true, activo: true, createdAt: true },
-          orderBy: { createdAt: "desc" },
+          select: { id: true, nombre: true, rubro: true, slug: true, barrio: true, foto: true, logo: true, descripcion: true, activo: true, isPremium: true, createdAt: true },
+          orderBy: [{ isPremium: "desc" }, { createdAt: "desc" }],
         });
         return new Response(JSON.stringify(comercios), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
       }
