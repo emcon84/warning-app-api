@@ -2111,9 +2111,7 @@ El mensaje debe:
           }),
         });
 
-        const groqRaw = await groqRes.text();
-        console.log("[generate-outreach] groq status:", groqRes.status, "body:", groqRaw);
-        const groqData = JSON.parse(groqRaw) as { choices: { message: { content: string } }[] };
+        const groqData = await groqRes.json() as { choices: { message: { content: string } }[] };
         const mensaje = groqData.choices?.[0]?.message?.content?.trim() ?? "";
         return new Response(JSON.stringify({ mensaje }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
       }
