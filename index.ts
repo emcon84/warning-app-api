@@ -2081,21 +2081,29 @@ La descripción debe:
         const { nombre, rubro, contacto } = await req.json() as { nombre: string; rubro?: string; contacto?: string };
         if (!nombre?.trim()) return new Response(JSON.stringify({ error: "Falta el nombre del comercio" }), { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } });
 
-        const prompt = `Escribí un mensaje de WhatsApp para enviarle al dueño de un comercio local llamado "${nombre}"${rubro ? ` (rubro: ${rubro})` : ""} en Reconquista, Santa Fe, Argentina.
-${contacto ? `El nombre del contacto o dueño es: ${contacto}.` : ""}
+        const prompt = `Escribí un mensaje corto y natural para enviarle al dueño de un comercio local llamado "${nombre}"${rubro ? ` (rubro: ${rubro})` : ""} en Reconquista, Santa Fe, Argentina.${contacto ? ` El nombre del dueño o contacto es ${contacto}.` : ""}
 
-El objetivo del mensaje es presentarme y agendar una visita presencial al local para mostrarle la plataforma Reportes Reconquista, donde puede crear gratis su vitrina digital con catálogo, WhatsApp y un cartel con QR para poner en la vidriera.
+Contexto sobre la plataforma que estoy promocionando:
+Reportes Reconquista (reportesreconquista.com) es una app local gratuita de Reconquista que tiene:
+- Directorio de comercios locales con perfil digital, fotos del local, catálogo de productos/servicios y botón de WhatsApp directo
+- Sección de ofertas y promociones para publicar descuentos
+- Directorio de profesionales de oficio (plomeros, electricistas, etc.)
+- Reportes ciudadanos (baches, semáforos rotos, etc.) usados por miles de vecinos
+- Un cartel con QR imprimible que el comercio puede poner en la vidriera para que los clientes encuentren su perfil digital
+
+Todo es 100% gratis. Mi objetivo es visitar el local en persona para mostrárselo y ayudarlos a crear su perfil.
 
 El mensaje debe:
-- Estar en español rioplatense casual ("vos", "dale", "te cuento")
-- Sonar como escrito a mano por una persona real, no por un bot
-- Presentarme brevemente como el creador de la plataforma local
-- Mencionar el beneficio concreto: tener su perfil digital + cartel con QR gratis
-- Proponer una visita breve al local ("te paso por el local un momento")
-- Ser corto (máximo 5 oraciones)
-- Terminar con una pregunta o propuesta concreta para que responda
-- NO incluir emojis en exceso, máximo 1 o 2
-- Devolvé SOLO el mensaje, sin explicaciones ni comillas`;
+- Estar en español rioplatense casual ("vos", "dale", "te cuento", "mirá")
+- Sonar escrito por una persona real, no un bot ni una empresa
+- Presentarme como el creador de la plataforma local (no "emprendedor", no "empresa")
+- Mencionar 1 o 2 beneficios concretos relevantes para este rubro: ${rubro || "comercio local"}
+- Incluir el link: reportesreconquista.com
+- Proponer pasar por el local un momento para mostrárselo en persona
+- Tener entre 4 y 6 oraciones, ni muy corto ni muy largo
+- Terminar con una pregunta concreta para que responda (ej: "¿te viene bien esta semana?")
+- Máximo 1 emoji, o ninguno
+- Devolvé SOLO el mensaje, sin comillas, sin explicaciones, sin asunto`;
 
         const groqRes = await fetch("https://api.groq.com/openai/v1/chat/completions", {
           method: "POST",
