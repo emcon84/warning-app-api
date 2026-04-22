@@ -7,7 +7,19 @@ import { createClerkClient, verifyToken } from "@clerk/backend";
 import { PrismaClient } from "@prisma/client";
 import { Resend } from "resend";
 
-const resend = process.env.RESEND_API_KEY ? new Resend(process.env.RESEND_API_KEY) : null;
+// Declaración global para que TypeScript reconozca Bun
+declare global {
+  const Bun: {
+    write: (
+      path: string,
+      data: ArrayBuffer | Uint8Array | string,
+    ) => Promise<void>;
+  };
+}
+
+const resend = process.env.RESEND_API_KEY
+  ? new Resend(process.env.RESEND_API_KEY)
+  : null;
 
 const prisma = new PrismaClient();
 const clerk = createClerkClient({ secretKey: process.env.CLERK_SECRET_KEY! });
@@ -18,7 +30,10 @@ const rateLimitMap = new Map<string, { count: number; resetAt: number }>();
 const RATE_LIMIT = 60; // requests por ventana
 const RATE_WINDOW = 60_000; // 1 minuto en ms
 
-const strictRateLimitMap = new Map<string, { count: number; resetAt: number }>();
+const strictRateLimitMap = new Map<
+  string,
+  { count: number; resetAt: number }
+>();
 const STRICT_RATE_LIMIT = 10; // requests por ventana para escrituras críticas
 
 function getRateLimitKey(req: Request): string {
@@ -73,13 +88,18 @@ setInterval(() => {
 
 function sanitizeText(input: unknown, maxLength = 1000): string {
   if (typeof input !== "string") return "";
-  return input
-    .trim()
-    .slice(0, maxLength)
-    // Remover caracteres de control excepto newlines y tabs
-    .replace(/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/g, "")
-    // Remover secuencias que parecen SQL injection
-    .replace(/(['";])\s*(--|\/\*|DROP|DELETE|INSERT|UPDATE|SELECT|UNION|ALTER|CREATE|EXEC|EXECUTE)\s/gi, "");
+  return (
+    input
+      .trim()
+      .slice(0, maxLength)
+      // Remover caracteres de control excepto newlines y tabs
+      .replace(/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/g, "")
+      // Remover secuencias que parecen SQL injection
+      .replace(
+        /(['";])\s*(--|\/\*|DROP|DELETE|INSERT|UPDATE|SELECT|UNION|ALTER|CREATE|EXEC|EXECUTE)\s/gi,
+        "",
+      )
+  );
 }
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
@@ -102,13 +122,18 @@ async function verifyClerkToken(req: Request): Promise<string | null> {
     return payload.sub;
   } catch (e: any) {
     // token-expired y token-invalid son casos normales (refresh de Clerk), no loguear
-    if (e?.reason === "token-expired" || e?.reason === "token-invalid") return null;
+    if (e?.reason === "token-expired" || e?.reason === "token-invalid")
+      return null;
     console.error("[verifyClerkToken] unexpected error:", e);
     return null;
   }
 }
 
-function generateSlug(nombre: string, apellido: string, oficios: string[]): string {
+function generateSlug(
+  nombre: string,
+  apellido: string,
+  oficios: string[],
+): string {
   const base = `${nombre}-${apellido}-${oficios[0] ?? "oficio"}`
     .toLowerCase()
     .normalize("NFD")
@@ -242,8 +267,12 @@ await db.query(`
     "createdAt" TIMESTAMP DEFAULT NOW()
   )
 `);
-await db.query(`CREATE INDEX IF NOT EXISTS "PageView_sessionId_idx" ON "PageView" ("sessionId")`);
-await db.query(`CREATE INDEX IF NOT EXISTS "PageView_createdAt_idx" ON "PageView" ("createdAt")`);
+await db.query(
+  `CREATE INDEX IF NOT EXISTS "PageView_sessionId_idx" ON "PageView" ("sessionId")`,
+);
+await db.query(
+  `CREATE INDEX IF NOT EXISTS "PageView_createdAt_idx" ON "PageView" ("createdAt")`,
+);
 
 // Configuración CORS
 const corsHeaders = {
@@ -286,10 +315,16 @@ const server = Bun.serve({
     if (!isPublicReadGet && path !== "/ws" && !path.startsWith("/uploads/")) {
       if (!checkRateLimit(req)) {
         return new Response(
-          JSON.stringify({ error: "Demasiadas solicitudes. Intentá en un momento." }),
+          JSON.stringify({
+            error: "Demasiadas solicitudes. Intentá en un momento.",
+          }),
           {
             status: 429,
-            headers: { ...corsHeaders, "Content-Type": "application/json", "Retry-After": "60" },
+            headers: {
+              ...corsHeaders,
+              "Content-Type": "application/json",
+              "Retry-After": "60",
+            },
           },
         );
       }
@@ -307,10 +342,16 @@ const server = Bun.serve({
     if (path === "/ws") {
       const conversationId = url.searchParams.get("conversationId");
       const token = url.searchParams.get("token");
-      const senderType = url.searchParams.get("senderType") as "client" | "professional" | null;
+      const senderType = url.searchParams.get("senderType") as
+        | "client"
+        | "professional"
+        | null;
 
       if (!conversationId || !token || !senderType) {
-        return new Response(JSON.stringify({ error: "Faltan parámetros" }), { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+        return new Response(JSON.stringify({ error: "Faltan parámetros" }), {
+          status: 400,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
       }
 
       const conversation = await prisma.conversation.findUnique({
@@ -319,7 +360,13 @@ const server = Bun.serve({
       });
 
       if (!conversation) {
-        return new Response(JSON.stringify({ error: "Conversación no encontrada" }), { status: 404, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+        return new Response(
+          JSON.stringify({ error: "Conversación no encontrada" }),
+          {
+            status: 404,
+            headers: { ...corsHeaders, "Content-Type": "application/json" },
+          },
+        );
       }
 
       // Validar que el token pertenece a esta conversación
@@ -328,11 +375,14 @@ const server = Bun.serve({
 
       // Para ambos tipos: intentar verificar como JWT de Clerk primero
       try {
-        const fakeReq = new Request("http://x", { headers: { Authorization: `Bearer ${token}` } });
+        const fakeReq = new Request("http://x", {
+          headers: { Authorization: `Bearer ${token}` },
+        });
         const clerkUserId = await verifyClerkToken(fakeReq);
         if (clerkUserId) {
           if (senderType === "professional") {
-            isProfessional = clerkUserId === conversation.Professional.clerkUserId;
+            isProfessional =
+              clerkUserId === conversation.Professional.clerkUserId;
           } else if (senderType === "client") {
             // El clientToken en la DB es el userId de Clerk del cliente
             isClient = conversation.clientToken === clerkUserId;
@@ -346,7 +396,10 @@ const server = Bun.serve({
       }
 
       if (!isClient && !isProfessional) {
-        return new Response(JSON.stringify({ error: "No autorizado" }), { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+        return new Response(JSON.stringify({ error: "No autorizado" }), {
+          status: 401,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
       }
 
       const upgraded = server.upgrade(req, {
@@ -354,7 +407,13 @@ const server = Bun.serve({
       });
 
       if (upgraded) return undefined as any;
-      return new Response(JSON.stringify({ error: "WebSocket upgrade fallido" }), { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      return new Response(
+        JSON.stringify({ error: "WebSocket upgrade fallido" }),
+        {
+          status: 500,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        },
+      );
     }
 
     try {
@@ -434,7 +493,19 @@ const server = Bun.serve({
       // POST /api/reports - Crear un nuevo reporte
       if (path === "/api/reports" && method === "POST") {
         if (!checkStrictRateLimit(req)) {
-          return new Response(JSON.stringify({ error: "Demasiadas solicitudes. Intentá en un momento." }), { status: 429, headers: { ...corsHeaders, "Content-Type": "application/json", "Retry-After": "60" } });
+          return new Response(
+            JSON.stringify({
+              error: "Demasiadas solicitudes. Intentá en un momento.",
+            }),
+            {
+              status: 429,
+              headers: {
+                ...corsHeaders,
+                "Content-Type": "application/json",
+                "Retry-After": "60",
+              },
+            },
+          );
         }
         const contentType = req.headers.get("content-type") || "";
 
@@ -483,9 +554,14 @@ const server = Bun.serve({
           }
         } else {
           // Manejar JSON (sin imagen o con base64 - retrocompatibilidad)
-          const contentLength = parseInt(req.headers.get("content-length") || "0");
+          const contentLength = parseInt(
+            req.headers.get("content-length") || "0",
+          );
           if (contentLength > 10 * 1024 * 1024) {
-            return new Response(JSON.stringify({ error: "Payload demasiado grande" }), { status: 413, headers: corsHeaders });
+            return new Response(
+              JSON.stringify({ error: "Payload demasiado grande" }),
+              { status: 413, headers: corsHeaders },
+            );
           }
           body = await req.json();
           body.description = sanitizeText(body.description, 1000);
@@ -889,7 +965,7 @@ const server = Bun.serve({
           params.push(obraSocial);
         }
 
-        query += ' ORDER BY nombre ASC';
+        query += " ORDER BY nombre ASC";
 
         const doctorsResult = await db.query(query, params);
         const doctors = doctorsResult.rows;
@@ -902,10 +978,10 @@ const server = Bun.serve({
                WHERE "doctorId" = $1
                ORDER BY "createdAt" DESC
                LIMIT 10`,
-              [doctor.id]
+              [doctor.id],
             );
             return { ...doctor, confirmaciones: confResult.rows };
-          })
+          }),
         );
 
         return new Response(JSON.stringify(doctorsWithConfirmaciones), {
@@ -919,7 +995,7 @@ const server = Bun.serve({
 
         const doctorResult = await db.query(
           'SELECT * FROM "Doctor" WHERE id = $1',
-          [id]
+          [id],
         );
 
         if (doctorResult.rows.length === 0) {
@@ -928,7 +1004,7 @@ const server = Bun.serve({
             {
               status: 404,
               headers: { ...corsHeaders, "Content-Type": "application/json" },
-            }
+            },
           );
         }
 
@@ -936,10 +1012,13 @@ const server = Bun.serve({
           `SELECT * FROM "Confirmacion"
            WHERE "doctorId" = $1
            ORDER BY "createdAt" DESC`,
-          [id]
+          [id],
         );
 
-        const doctor = { ...doctorResult.rows[0], confirmaciones: confResult.rows };
+        const doctor = {
+          ...doctorResult.rows[0],
+          confirmaciones: confResult.rows,
+        };
 
         return new Response(JSON.stringify(doctor), {
           headers: { ...corsHeaders, "Content-Type": "application/json" },
@@ -949,15 +1028,35 @@ const server = Bun.serve({
       // POST /api/doctors - Crear doctor
       if (path === "/api/doctors" && method === "POST") {
         const body = await req.json();
-        const { nombre, especialidad, direccion, barrio, ciudad, telefono, whatsapp, lat, lng, obrasSociales } = body;
+        const {
+          nombre,
+          especialidad,
+          direccion,
+          barrio,
+          ciudad,
+          telefono,
+          whatsapp,
+          lat,
+          lng,
+          obrasSociales,
+        } = body;
 
-        if (!nombre || !especialidad || !direccion || lat === undefined || lng === undefined) {
+        if (
+          !nombre ||
+          !especialidad ||
+          !direccion ||
+          lat === undefined ||
+          lng === undefined
+        ) {
           return new Response(
-            JSON.stringify({ error: "Faltan campos requeridos: nombre, especialidad, direccion, lat, lng" }),
+            JSON.stringify({
+              error:
+                "Faltan campos requeridos: nombre, especialidad, direccion, lat, lng",
+            }),
             {
               status: 400,
               headers: { ...corsHeaders, "Content-Type": "application/json" },
-            }
+            },
           );
         }
 
@@ -982,7 +1081,7 @@ const server = Bun.serve({
             obrasSociales || [],
             now,
             now,
-          ]
+          ],
         );
 
         return new Response(JSON.stringify(result.rows[0]), {
@@ -1000,17 +1099,50 @@ const server = Bun.serve({
         const params: any[] = [];
         let paramCount = 1;
 
-        if (body.nombre !== undefined) { updates.push(`nombre = $${paramCount++}`); params.push(body.nombre); }
-        if (body.especialidad !== undefined) { updates.push(`especialidad = $${paramCount++}`); params.push(body.especialidad); }
-        if (body.direccion !== undefined) { updates.push(`direccion = $${paramCount++}`); params.push(body.direccion); }
-        if (body.barrio !== undefined) { updates.push(`barrio = $${paramCount++}`); params.push(body.barrio); }
-        if (body.ciudad !== undefined) { updates.push(`ciudad = $${paramCount++}`); params.push(body.ciudad); }
-        if (body.telefono !== undefined) { updates.push(`telefono = $${paramCount++}`); params.push(body.telefono); }
-        if (body.whatsapp !== undefined) { updates.push(`whatsapp = $${paramCount++}`); params.push(body.whatsapp); }
-        if (body.lat !== undefined) { updates.push(`lat = $${paramCount++}`); params.push(body.lat); }
-        if (body.lng !== undefined) { updates.push(`lng = $${paramCount++}`); params.push(body.lng); }
-        if (body.obrasSociales !== undefined) { updates.push(`"obrasSociales" = $${paramCount++}`); params.push(body.obrasSociales); }
-        if (body.activo !== undefined) { updates.push(`activo = $${paramCount++}`); params.push(body.activo); }
+        if (body.nombre !== undefined) {
+          updates.push(`nombre = $${paramCount++}`);
+          params.push(body.nombre);
+        }
+        if (body.especialidad !== undefined) {
+          updates.push(`especialidad = $${paramCount++}`);
+          params.push(body.especialidad);
+        }
+        if (body.direccion !== undefined) {
+          updates.push(`direccion = $${paramCount++}`);
+          params.push(body.direccion);
+        }
+        if (body.barrio !== undefined) {
+          updates.push(`barrio = $${paramCount++}`);
+          params.push(body.barrio);
+        }
+        if (body.ciudad !== undefined) {
+          updates.push(`ciudad = $${paramCount++}`);
+          params.push(body.ciudad);
+        }
+        if (body.telefono !== undefined) {
+          updates.push(`telefono = $${paramCount++}`);
+          params.push(body.telefono);
+        }
+        if (body.whatsapp !== undefined) {
+          updates.push(`whatsapp = $${paramCount++}`);
+          params.push(body.whatsapp);
+        }
+        if (body.lat !== undefined) {
+          updates.push(`lat = $${paramCount++}`);
+          params.push(body.lat);
+        }
+        if (body.lng !== undefined) {
+          updates.push(`lng = $${paramCount++}`);
+          params.push(body.lng);
+        }
+        if (body.obrasSociales !== undefined) {
+          updates.push(`"obrasSociales" = $${paramCount++}`);
+          params.push(body.obrasSociales);
+        }
+        if (body.activo !== undefined) {
+          updates.push(`activo = $${paramCount++}`);
+          params.push(body.activo);
+        }
 
         updates.push(`"updatedAt" = $${paramCount++}`);
         params.push(new Date());
@@ -1018,7 +1150,7 @@ const server = Bun.serve({
 
         const result = await db.query(
           `UPDATE "Doctor" SET ${updates.join(", ")} WHERE id = $${paramCount} RETURNING *`,
-          params
+          params,
         );
 
         if (result.rows.length === 0) {
@@ -1027,7 +1159,7 @@ const server = Bun.serve({
             {
               status: 404,
               headers: { ...corsHeaders, "Content-Type": "application/json" },
-            }
+            },
           );
         }
 
@@ -1042,7 +1174,7 @@ const server = Bun.serve({
 
         const result = await db.query(
           'DELETE FROM "Doctor" WHERE id = $1 RETURNING *',
-          [id]
+          [id],
         );
 
         if (result.rows.length === 0) {
@@ -1051,7 +1183,7 @@ const server = Bun.serve({
             {
               status: 404,
               headers: { ...corsHeaders, "Content-Type": "application/json" },
-            }
+            },
           );
         }
 
@@ -1061,7 +1193,10 @@ const server = Bun.serve({
       }
 
       // POST /api/doctors/:id/confirmaciones - Agregar confirmación
-      if (path.match(/^\/api\/doctors\/[^/]+\/confirmaciones$/) && method === "POST") {
+      if (
+        path.match(/^\/api\/doctors\/[^/]+\/confirmaciones$/) &&
+        method === "POST"
+      ) {
         const id = path.split("/")[3];
         const body = await req.json();
         const { obraSocial, acepta } = body;
@@ -1072,19 +1207,22 @@ const server = Bun.serve({
             {
               status: 400,
               headers: { ...corsHeaders, "Content-Type": "application/json" },
-            }
+            },
           );
         }
 
         // Verificar que el doctor existe
-        const doctorCheck = await db.query('SELECT id FROM "Doctor" WHERE id = $1', [id]);
+        const doctorCheck = await db.query(
+          'SELECT id FROM "Doctor" WHERE id = $1',
+          [id],
+        );
         if (doctorCheck.rows.length === 0) {
           return new Response(
             JSON.stringify({ error: "Médico no encontrado" }),
             {
               status: 404,
               headers: { ...corsHeaders, "Content-Type": "application/json" },
-            }
+            },
           );
         }
 
@@ -1093,7 +1231,7 @@ const server = Bun.serve({
         await db.query(
           `INSERT INTO "Confirmacion" (id, "doctorId", "obraSocial", acepta, "createdAt")
            VALUES ($1, $2, $3, $4, NOW())`,
-          [confId, id, obraSocial, acepta]
+          [confId, id, obraSocial, acepta],
         );
 
         // Recalcular obrasSociales basándose en últimas 5 confirmaciones por obra social
@@ -1104,7 +1242,7 @@ const server = Bun.serve({
              WHERE "doctorId" = $1 AND "obraSocial" = $2
              ORDER BY "createdAt" DESC
              LIMIT 5`,
-            [id, os]
+            [id, os],
           );
           if (ultimas5.rows.length > 0) {
             const aceptan = ultimas5.rows.filter((r: any) => r.acepta).length;
@@ -1117,7 +1255,7 @@ const server = Bun.serve({
 
         const updatedDoctor = await db.query(
           `UPDATE "Doctor" SET "obrasSociales" = $1, "updatedAt" = NOW() WHERE id = $2 RETURNING *`,
-          [nuevasObrasSociales, id]
+          [nuevasObrasSociales, id],
         );
 
         return new Response(JSON.stringify(updatedDoctor.rows[0]), {
@@ -1127,14 +1265,17 @@ const server = Bun.serve({
       }
 
       // GET /api/doctors/:id/disponibilidad - Disponibilidades vigentes
-      if (path.match(/^\/api\/doctors\/[^/]+\/disponibilidad$/) && method === "GET") {
+      if (
+        path.match(/^\/api\/doctors\/[^/]+\/disponibilidad$/) &&
+        method === "GET"
+      ) {
         const id = path.split("/")[3];
         const result = await db.query(
           `SELECT * FROM "TurnoDisponibilidad"
            WHERE "doctorId" = $1 AND "expiresAt" > NOW()
            ORDER BY "createdAt" DESC
            LIMIT 5`,
-          [id]
+          [id],
         );
         return new Response(JSON.stringify(result.rows), {
           headers: { ...corsHeaders, "Content-Type": "application/json" },
@@ -1142,16 +1283,22 @@ const server = Bun.serve({
       }
 
       // POST /api/doctors/:id/disponibilidad - Reportar disponibilidad
-      if (path.match(/^\/api\/doctors\/[^/]+\/disponibilidad$/) && method === "POST") {
+      if (
+        path.match(/^\/api\/doctors\/[^/]+\/disponibilidad$/) &&
+        method === "POST"
+      ) {
         const id = path.split("/")[3];
         const body = await req.json();
         const { dias, horario, tipoTurno, obraSocial, nota } = body;
 
         if (!dias?.length || !horario || !tipoTurno) {
-          return new Response(JSON.stringify({ error: "Faltan campos requeridos" }), {
-            status: 400,
-            headers: { ...corsHeaders, "Content-Type": "application/json" },
-          });
+          return new Response(
+            JSON.stringify({ error: "Faltan campos requeridos" }),
+            {
+              status: 400,
+              headers: { ...corsHeaders, "Content-Type": "application/json" },
+            },
+          );
         }
 
         const newId = `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
@@ -1160,7 +1307,16 @@ const server = Bun.serve({
         const result = await db.query(
           `INSERT INTO "TurnoDisponibilidad" (id, "doctorId", dias, horario, "tipoTurno", "obraSocial", nota, "expiresAt")
            VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING *`,
-          [newId, id, dias, horario, tipoTurno, obraSocial || "Todas", nota || null, expiresAt]
+          [
+            newId,
+            id,
+            dias,
+            horario,
+            tipoTurno,
+            obraSocial || "Todas",
+            nota || null,
+            expiresAt,
+          ],
         );
 
         return new Response(JSON.stringify(result.rows[0]), {
@@ -1175,7 +1331,9 @@ const server = Bun.serve({
 
       // GET /api/farmacias - Lista todas las farmacias
       if (path === "/api/farmacias" && method === "GET") {
-        const result = await db.query('SELECT * FROM "Farmacia" WHERE activo = true ORDER BY nombre');
+        const result = await db.query(
+          'SELECT * FROM "Farmacia" WHERE activo = true ORDER BY nombre',
+        );
         return new Response(JSON.stringify(result.rows), {
           headers: { ...corsHeaders, "Content-Type": "application/json" },
         });
@@ -1210,42 +1368,60 @@ const server = Bun.serve({
           const events: any[] = await fetch(ajaxUrl, {
             headers: {
               "User-Agent": "warning-app/1.0",
-              "Referer": "https://regionnet.com.ar/servicios/farmacias/",
+              Referer: "https://regionnet.com.ar/servicios/farmacias/",
               "X-Requested-With": "XMLHttpRequest",
             },
-          }).then(r => r.json());
+          }).then((r) => r.json());
 
           // Eventos activos ahora: categoría reconquista + clase eo-event-running
           const nombresDeturno = events
-            .filter((e: any) =>
-              Array.isArray(e.className) &&
-              e.className.includes("eo-event-running") &&
-              e.className.some((c: string) => c.includes("reconquista"))
+            .filter(
+              (e: any) =>
+                Array.isArray(e.className) &&
+                e.className.includes("eo-event-running") &&
+                e.className.some((c: string) => c.includes("reconquista")),
             )
             .map((e: any) => (e.title as string).trim().toUpperCase());
 
           // Cruzar con farmacias en BD
-          const farmaciasResult = await db.query('SELECT * FROM "Farmacia" WHERE activo = true');
+          const farmaciasResult = await db.query(
+            'SELECT * FROM "Farmacia" WHERE activo = true',
+          );
           const todas = farmaciasResult.rows;
 
-          const deturno = nombresDeturno.length > 0
-            ? todas.filter(f =>
-                nombresDeturno.some(n =>
-                  f.nombre.toUpperCase().includes(n) || n.includes(f.nombre.toUpperCase())
+          const deturno =
+            nombresDeturno.length > 0
+              ? todas.filter((f) =>
+                  nombresDeturno.some(
+                    (n) =>
+                      f.nombre.toUpperCase().includes(n) ||
+                      n.includes(f.nombre.toUpperCase()),
+                  ),
                 )
-              )
-            : [];
+              : [];
 
-          const data = { fecha: dateStr, farmacias: deturno, raw: nombresDeturno };
+          const data = {
+            fecha: dateStr,
+            farmacias: deturno,
+            raw: nombresDeturno,
+          };
           turnoCache = { timestamp: now, data };
 
           return new Response(JSON.stringify(data), {
             headers: { ...corsHeaders, "Content-Type": "application/json" },
           });
         } catch (err) {
-          return new Response(JSON.stringify({ fecha: "", farmacias: [], raw: [], error: "No se pudo obtener el turno" }), {
-            headers: { ...corsHeaders, "Content-Type": "application/json" },
-          });
+          return new Response(
+            JSON.stringify({
+              fecha: "",
+              farmacias: [],
+              raw: [],
+              error: "No se pudo obtener el turno",
+            }),
+            {
+              headers: { ...corsHeaders, "Content-Type": "application/json" },
+            },
+          );
         }
       }
 
@@ -1253,29 +1429,58 @@ const server = Bun.serve({
       const farmaciaUpdateMatch = path.match(/^\/api\/farmacias\/([^/]+)$/);
       if (farmaciaUpdateMatch && method === "PUT") {
         const id = farmaciaUpdateMatch[1];
-        const body = await req.json() as { lat?: number; lng?: number; direccion?: string; nombre?: string; telefono?: string };
+        const body = (await req.json()) as {
+          lat?: number;
+          lng?: number;
+          direccion?: string;
+          nombre?: string;
+          telefono?: string;
+        };
         const fields: string[] = [];
         const values: any[] = [];
         let idx = 1;
-        if (body.lat !== undefined)      { fields.push(`lat = $${idx++}`);       values.push(body.lat); }
-        if (body.lng !== undefined)      { fields.push(`lng = $${idx++}`);       values.push(body.lng); }
-        if (body.direccion !== undefined){ fields.push(`direccion = $${idx++}`); values.push(body.direccion); }
-        if (body.nombre !== undefined)   { fields.push(`nombre = $${idx++}`);    values.push(body.nombre); }
-        if (body.telefono !== undefined) { fields.push(`telefono = $${idx++}`);  values.push(body.telefono); }
+        if (body.lat !== undefined) {
+          fields.push(`lat = $${idx++}`);
+          values.push(body.lat);
+        }
+        if (body.lng !== undefined) {
+          fields.push(`lng = $${idx++}`);
+          values.push(body.lng);
+        }
+        if (body.direccion !== undefined) {
+          fields.push(`direccion = $${idx++}`);
+          values.push(body.direccion);
+        }
+        if (body.nombre !== undefined) {
+          fields.push(`nombre = $${idx++}`);
+          values.push(body.nombre);
+        }
+        if (body.telefono !== undefined) {
+          fields.push(`telefono = $${idx++}`);
+          values.push(body.telefono);
+        }
         if (!fields.length) {
-          return new Response(JSON.stringify({ error: "Sin campos a actualizar" }), {
-            status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" },
-          });
+          return new Response(
+            JSON.stringify({ error: "Sin campos a actualizar" }),
+            {
+              status: 400,
+              headers: { ...corsHeaders, "Content-Type": "application/json" },
+            },
+          );
         }
         values.push(id);
         const result = await db.query(
           `UPDATE "Farmacia" SET ${fields.join(", ")} WHERE id = $${idx} RETURNING *`,
-          values
+          values,
         );
         if (!result.rows.length) {
-          return new Response(JSON.stringify({ error: "Farmacia no encontrada" }), {
-            status: 404, headers: { ...corsHeaders, "Content-Type": "application/json" },
-          });
+          return new Response(
+            JSON.stringify({ error: "Farmacia no encontrada" }),
+            {
+              status: 404,
+              headers: { ...corsHeaders, "Content-Type": "application/json" },
+            },
+          );
         }
         return new Response(JSON.stringify(result.rows[0]), {
           headers: { ...corsHeaders, "Content-Type": "application/json" },
@@ -1288,67 +1493,142 @@ const server = Bun.serve({
 
       // Calles conocidas de Reconquista para corrección fuzzy post-transcripción
       const CALLES_RECONQUISTA = [
-        "Habegger","Iriondo","Pellegrini","Rivadavia","Avellaneda","Belgrano",
-        "San Martín","Mitre","Roca","Colón","Sarmiento","Tucumán","Córdoba",
-        "Mendoza","Entre Ríos","Corrientes","La Rioja","San Juan","Moreno",
-        "Iturraspe","Ituzaingó","Almafuerte","Chacabuco","Freyre","Ludueña",
-        "Bolívar","Alvear","Independencia","Amenabar","Patricio Diez",
-        "Bulevar Lovato","Bulevar Constituyentes","25 de Mayo","9 de Julio",
-        "Ruta Nacional 11","Fuerza Aérea","Ledesma","Cernadas","Obligado",
-        "Calle 41","Calle 43","Calle 44","Calle 45","Calle 46","Calle 47",
-        "Calle 48","Calle 50","Calle 52","Calle 54","Calle 56","Calle 58",
-        "Calle 60","Calle 62",
+        "Habegger",
+        "Iriondo",
+        "Pellegrini",
+        "Rivadavia",
+        "Avellaneda",
+        "Belgrano",
+        "San Martín",
+        "Mitre",
+        "Roca",
+        "Colón",
+        "Sarmiento",
+        "Tucumán",
+        "Córdoba",
+        "Mendoza",
+        "Entre Ríos",
+        "Corrientes",
+        "La Rioja",
+        "San Juan",
+        "Moreno",
+        "Iturraspe",
+        "Ituzaingó",
+        "Almafuerte",
+        "Chacabuco",
+        "Freyre",
+        "Ludueña",
+        "Bolívar",
+        "Alvear",
+        "Independencia",
+        "Amenabar",
+        "Patricio Diez",
+        "Bulevar Lovato",
+        "Bulevar Constituyentes",
+        "25 de Mayo",
+        "9 de Julio",
+        "Ruta Nacional 11",
+        "Fuerza Aérea",
+        "Ledesma",
+        "Cernadas",
+        "Obligado",
+        "Calle 41",
+        "Calle 43",
+        "Calle 44",
+        "Calle 45",
+        "Calle 46",
+        "Calle 47",
+        "Calle 48",
+        "Calle 50",
+        "Calle 52",
+        "Calle 54",
+        "Calle 56",
+        "Calle 58",
+        "Calle 60",
+        "Calle 62",
       ];
 
       // Levenshtein distance
       const levenshtein = (a: string, b: string): number => {
-        const m = a.length, n = b.length;
-        const dp: number[][] = Array.from({length: m+1}, (_, i) => [i, ...Array(n).fill(0)]);
+        const m = a.length,
+          n = b.length;
+        const dp: number[][] = Array.from({ length: m + 1 }, (_, i) => [
+          i,
+          ...Array(n).fill(0),
+        ]);
         for (let j = 0; j <= n; j++) dp[0][j] = j;
         for (let i = 1; i <= m; i++)
           for (let j = 1; j <= n; j++)
-            dp[i][j] = a[i-1] === b[j-1] ? dp[i-1][j-1] : 1 + Math.min(dp[i-1][j], dp[i][j-1], dp[i-1][j-1]);
+            dp[i][j] =
+              a[i - 1] === b[j - 1]
+                ? dp[i - 1][j - 1]
+                : 1 + Math.min(dp[i - 1][j], dp[i][j - 1], dp[i - 1][j - 1]);
         return dp[m][n];
       };
 
       // Palabras clave de problemas para corrección fonética
       const PROBLEM_CORRECTIONS: Record<string, string> = {
-        "vache": "bache", "bache": "bache", "pache": "bache", "mache": "bache",
-        "vacha": "bache", "baches": "baches", "vaches": "baches",
-        "alumbrao": "alumbrado", "alumbramiento": "alumbrado",
-        "basura": "basura", "vasura": "basura",
-        "pastizal": "pastizal", "pasto": "pastizal", "yuyos": "pastizal",
-        "semaforo": "semáforo", "señaforo": "semáforo",
-        "graffiti": "graffiti", "grafiti": "graffiti", "pintada": "graffiti",
-        "escombro": "escombro", "cascote": "escombro",
+        vache: "bache",
+        bache: "bache",
+        pache: "bache",
+        mache: "bache",
+        vacha: "bache",
+        baches: "baches",
+        vaches: "baches",
+        alumbrao: "alumbrado",
+        alumbramiento: "alumbrado",
+        basura: "basura",
+        vasura: "basura",
+        pastizal: "pastizal",
+        pasto: "pastizal",
+        yuyos: "pastizal",
+        semaforo: "semáforo",
+        señaforo: "semáforo",
+        graffiti: "graffiti",
+        grafiti: "graffiti",
+        pintada: "graffiti",
+        escombro: "escombro",
+        cascote: "escombro",
       };
 
       // Corregir palabras del transcript — calles conocidas + problemas comunes
       const correctStreetNames = (text: string): string => {
         const words = text.split(/\b/);
-        return words.map(word => {
-          if (word.length < 4) return word;
-          const wordLower = word.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+        return words
+          .map((word) => {
+            if (word.length < 4) return word;
+            const wordLower = word
+              .toLowerCase()
+              .normalize("NFD")
+              .replace(/[\u0300-\u036f]/g, "");
 
-          // Corrección de problemas comunes primero
-          if (PROBLEM_CORRECTIONS[wordLower]) return PROBLEM_CORRECTIONS[wordLower];
+            // Corrección de problemas comunes primero
+            if (PROBLEM_CORRECTIONS[wordLower])
+              return PROBLEM_CORRECTIONS[wordLower];
 
-          // Corrección de calles por Levenshtein
-          let bestMatch = "";
-          let bestDist = Infinity;
-          for (const calle of CALLES_RECONQUISTA) {
-            if (calle.includes(" ")) continue;
-            const calleLower = calle.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
-            if (Math.abs(wordLower.length - calleLower.length) > 4) continue;
-            const dist = levenshtein(wordLower, calleLower);
-            const threshold = Math.max(2, Math.floor(calleLower.length * 0.3));
-            if (dist < bestDist && dist <= threshold) {
-              bestDist = dist;
-              bestMatch = calle;
+            // Corrección de calles por Levenshtein
+            let bestMatch = "";
+            let bestDist = Infinity;
+            for (const calle of CALLES_RECONQUISTA) {
+              if (calle.includes(" ")) continue;
+              const calleLower = calle
+                .toLowerCase()
+                .normalize("NFD")
+                .replace(/[\u0300-\u036f]/g, "");
+              if (Math.abs(wordLower.length - calleLower.length) > 4) continue;
+              const dist = levenshtein(wordLower, calleLower);
+              const threshold = Math.max(
+                2,
+                Math.floor(calleLower.length * 0.3),
+              );
+              if (dist < bestDist && dist <= threshold) {
+                bestDist = dist;
+                bestMatch = calle;
+              }
             }
-          }
-          return bestMatch || word;
-        }).join("");
+            return bestMatch || word;
+          })
+          .join("");
       };
 
       // POST /api/voice/simple - Reporte por voz sin IA (Web Speech API)
@@ -1356,25 +1636,57 @@ const server = Bun.serve({
         const body = await req.json();
         const { description, lat, lng } = body;
         if (!description || !lat || !lng) {
-          return new Response(JSON.stringify({ error: "Faltan campos: description, lat, lng" }), {
-            status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" },
-          });
+          return new Response(
+            JSON.stringify({ error: "Faltan campos: description, lat, lng" }),
+            {
+              status: 400,
+              headers: { ...corsHeaders, "Content-Type": "application/json" },
+            },
+          );
         }
         const id = `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
         const now = new Date();
         const result = await db.query(
           `INSERT INTO "Report" (id, lat, lng, category, description, barrio, direccion, photo, photos, "isUrgent", "createdAt", "updatedAt") VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12) RETURNING *`,
-          [id, lat, lng, "voz", description.slice(0, 500), "Sin especificar", "Sin especificar", null, [], false, now, now],
+          [
+            id,
+            lat,
+            lng,
+            "voz",
+            description.slice(0, 500),
+            "Sin especificar",
+            "Sin especificar",
+            null,
+            [],
+            false,
+            now,
+            now,
+          ],
         );
         const newReport = result.rows[0];
         try {
-          const subscriptions = await db.query('SELECT endpoint, p256dh, auth FROM "PushSubscription"');
+          const subscriptions = await db.query(
+            'SELECT endpoint, p256dh, auth FROM "PushSubscription"',
+          );
           for (const sub of subscriptions.rows) {
-            await webPush.sendNotification({ endpoint: sub.endpoint, keys: { p256dh: sub.p256dh, auth: sub.auth } }, JSON.stringify({ title: "Nuevo reporte por voz", body: description.slice(0, 80), url: "/" })).catch(() => {});
+            await webPush
+              .sendNotification(
+                {
+                  endpoint: sub.endpoint,
+                  keys: { p256dh: sub.p256dh, auth: sub.auth },
+                },
+                JSON.stringify({
+                  title: "Nuevo reporte por voz",
+                  body: description.slice(0, 80),
+                  url: "/",
+                }),
+              )
+              .catch(() => {});
           }
         } catch {}
         return new Response(JSON.stringify({ report: newReport }), {
-          status: 201, headers: { ...corsHeaders, "Content-Type": "application/json" },
+          status: 201,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
         });
       }
 
@@ -1392,32 +1704,50 @@ const server = Bun.serve({
           lng = parseFloat(formData.get("lng") as string);
 
           if (!audioFile || !lat || !lng) {
-            return new Response(JSON.stringify({ error: "Faltan campos: audio, lat, lng" }), {
-              status: 400,
-              headers: { ...corsHeaders, "Content-Type": "application/json" },
-            });
+            return new Response(
+              JSON.stringify({ error: "Faltan campos: audio, lat, lng" }),
+              {
+                status: 400,
+                headers: { ...corsHeaders, "Content-Type": "application/json" },
+              },
+            );
           }
 
           // Paso 1: Groq Whisper — transcripción
           const whisperForm = new FormData();
-          whisperForm.append("file", new Blob([await audioFile.arrayBuffer()], { type: "audio/webm" }), "audio.webm");
+          whisperForm.append(
+            "file",
+            new Blob([await audioFile.arrayBuffer()], { type: "audio/webm" }),
+            "audio.webm",
+          );
           whisperForm.append("model", "whisper-large-v3");
           whisperForm.append("language", "es");
-          whisperForm.append("prompt", "Reporte ciudadano en Reconquista, Santa Fe, Argentina. Calles: Habegger, Iturraspe, Ituzaingó, Almafuerte, Ludueña, Amenabar, Bulevar Lovato, Patricio Diez, Ruta Nacional 11, Avellaneda, Pellegrini, Rivadavia, Iriondo.");
+          whisperForm.append(
+            "prompt",
+            "Reporte ciudadano en Reconquista, Santa Fe, Argentina. Calles: Habegger, Iturraspe, Ituzaingó, Almafuerte, Ludueña, Amenabar, Bulevar Lovato, Patricio Diez, Ruta Nacional 11, Avellaneda, Pellegrini, Rivadavia, Iriondo.",
+          );
 
-          const whisperRes = await fetch("https://api.groq.com/openai/v1/audio/transcriptions", {
-            method: "POST",
-            headers: { Authorization: `Bearer ${process.env.GROQ_API_KEY}` },
-            body: whisperForm,
-          });
+          const whisperRes = await fetch(
+            "https://api.groq.com/openai/v1/audio/transcriptions",
+            {
+              method: "POST",
+              headers: { Authorization: `Bearer ${process.env.GROQ_API_KEY}` },
+              body: whisperForm,
+            },
+          );
 
           if (!whisperRes.ok) {
             const err = await whisperRes.text();
             console.error("Whisper error:", err);
-            return new Response(JSON.stringify({ error: "Error al transcribir el audio. Intentá de nuevo." }), {
-              status: 500,
-              headers: { ...corsHeaders, "Content-Type": "application/json" },
-            });
+            return new Response(
+              JSON.stringify({
+                error: "Error al transcribir el audio. Intentá de nuevo.",
+              }),
+              {
+                status: 500,
+                headers: { ...corsHeaders, "Content-Type": "application/json" },
+              },
+            );
           }
 
           const whisperData = await whisperRes.json();
@@ -1445,24 +1775,35 @@ Texto a analizar: "${correctedTranscript}"
 
 JSON:`;
 
-          const llmRes = await fetch("https://api.groq.com/openai/v1/chat/completions", {
-            method: "POST",
-            headers: { Authorization: `Bearer ${process.env.GROQ_API_KEY}`, "Content-Type": "application/json" },
-            body: JSON.stringify({
-              model: "llama-3.3-70b-versatile",
-              messages: [{ role: "user", content: nlpPrompt }],
-              temperature: 0.1,
-              max_tokens: 200,
-            }),
-          });
+          const llmRes = await fetch(
+            "https://api.groq.com/openai/v1/chat/completions",
+            {
+              method: "POST",
+              headers: {
+                Authorization: `Bearer ${process.env.GROQ_API_KEY}`,
+                "Content-Type": "application/json",
+              },
+              body: JSON.stringify({
+                model: "llama-3.3-70b-versatile",
+                messages: [{ role: "user", content: nlpPrompt }],
+                temperature: 0.1,
+                max_tokens: 200,
+              }),
+            },
+          );
 
           if (!llmRes.ok) {
             const err = await llmRes.text();
             console.error("LLM error:", err);
-            return new Response(JSON.stringify({ error: "No se pudo interpretar el audio. Intentá de nuevo." }), {
-              status: 500,
-              headers: { ...corsHeaders, "Content-Type": "application/json" },
-            });
+            return new Response(
+              JSON.stringify({
+                error: "No se pudo interpretar el audio. Intentá de nuevo.",
+              }),
+              {
+                status: 500,
+                headers: { ...corsHeaders, "Content-Type": "application/json" },
+              },
+            );
           }
 
           const llmData = await llmRes.json();
@@ -1475,15 +1816,45 @@ JSON:`;
             if (!jsonMatch) throw new Error("No JSON");
             extracted = JSON.parse(jsonMatch[0]);
           } catch {
-            return new Response(JSON.stringify({ error: "No se pudo interpretar el audio. Intentá de nuevo." }), {
-              status: 422,
-              headers: { ...corsHeaders, "Content-Type": "application/json" },
-            });
+            return new Response(
+              JSON.stringify({
+                error: "No se pudo interpretar el audio. Intentá de nuevo.",
+              }),
+              {
+                status: 422,
+                headers: { ...corsHeaders, "Content-Type": "application/json" },
+              },
+            );
           }
 
-          const CATEGORIAS = ["basura","alumbrado","baches","pastizales","robo","personas_sospechosas","fugas_agua","drenaje","banquetas","semaforos","limpieza","graffiti","escombros","arboles","vandalismo","vehiculos_abandonados","iluminacion","animales_callejeros","plagas","senalizacion","estacionamiento","transporte"];
+          const CATEGORIAS = [
+            "basura",
+            "alumbrado",
+            "baches",
+            "pastizales",
+            "robo",
+            "personas_sospechosas",
+            "fugas_agua",
+            "drenaje",
+            "banquetas",
+            "semaforos",
+            "limpieza",
+            "graffiti",
+            "escombros",
+            "arboles",
+            "vandalismo",
+            "vehiculos_abandonados",
+            "iluminacion",
+            "animales_callejeros",
+            "plagas",
+            "senalizacion",
+            "estacionamiento",
+            "transporte",
+          ];
           transcript = extracted.descripcion || "";
-          const categoria = CATEGORIAS.includes(extracted.categoria) ? extracted.categoria : "basura";
+          const categoria = CATEGORIAS.includes(extracted.categoria)
+            ? extracted.categoria
+            : "basura";
           const descripcion = (extracted.descripcion || "").slice(0, 500);
           const barrio = extracted.barrio || "Sin especificar";
           const direccion = extracted.direccion || "Sin especificar";
@@ -1495,44 +1866,93 @@ JSON:`;
             try {
               const bbox = "-59.85,-29.30,-59.45,-28.95";
               const sepRegex = /\s+(?:y|e|-|\/|esq\.?|esquina|entre|casi)\s+/i;
-              const parts = direccion.split(sepRegex).map((s: string) => s.trim()).filter(Boolean);
+              const parts = direccion
+                .split(sepRegex)
+                .map((s: string) => s.trim())
+                .filter(Boolean);
               const isIntersection = parts.length >= 2;
-              const normalize = (s: string) => s
-                .replace(/[áàä]/gi,"a").replace(/[éèë]/gi,"e").replace(/[íìï]/gi,"i")
-                .replace(/[óòö]/gi,"o").replace(/[úùü]/gi,"u");
+              const normalize = (s: string) =>
+                s
+                  .replace(/[áàä]/gi, "a")
+                  .replace(/[éèë]/gi, "e")
+                  .replace(/[íìï]/gi, "i")
+                  .replace(/[óòö]/gi, "o")
+                  .replace(/[úùü]/gi, "u");
 
               // Extraer palabra clave para búsqueda en Overpass (último token significativo)
-              const SKIP_WORDS = new Set(["calle","avenida","av","bulevar","blvd","ruta","nacional","de","del","la","los","las","el"]);
+              const SKIP_WORDS = new Set([
+                "calle",
+                "avenida",
+                "av",
+                "bulevar",
+                "blvd",
+                "ruta",
+                "nacional",
+                "de",
+                "del",
+                "la",
+                "los",
+                "las",
+                "el",
+              ]);
               const overpassKeyword = (s: string): string => {
                 // Aliases conocidos
                 const aliases: Record<string, string> = {
-                  "yrigoyen": "irigoyen", "hipolito irigoyen": "irigoyen",
-                  "hipolito yrigoyen": "irigoyen", "ruta 11": "irigoyen",
-                  "ruta nacional 11": "irigoyen", "san martin": "martin",
-                  "25 de mayo": "mayo", "9 de julio": "julio",
-                  "bulevar lovato": "lovato", "patricio diez": "diez",
+                  yrigoyen: "irigoyen",
+                  "hipolito irigoyen": "irigoyen",
+                  "hipolito yrigoyen": "irigoyen",
+                  "ruta 11": "irigoyen",
+                  "ruta nacional 11": "irigoyen",
+                  "san martin": "martin",
+                  "25 de mayo": "mayo",
+                  "9 de julio": "julio",
+                  "bulevar lovato": "lovato",
+                  "patricio diez": "diez",
                 };
                 const norm = normalize(s.toLowerCase());
                 if (aliases[norm]) return aliases[norm];
                 // Último token no trivial
-                const tokens = norm.split(/\s+/).filter(t => t.length > 2 && !SKIP_WORDS.has(t));
+                const tokens = norm
+                  .split(/\s+/)
+                  .filter((t) => t.length > 2 && !SKIP_WORDS.has(t));
                 return tokens[tokens.length - 1] || norm;
               };
 
               const doGeocode = async (q: string) => {
-                const encoded = encodeURIComponent(`${q}, Reconquista, Santa Fe, Argentina`);
-                const res = await fetch(`https://nominatim.openstreetmap.org/search?q=${encoded}&format=json&limit=1&countrycodes=ar&viewbox=${bbox}&bounded=1`, { headers: { "User-Agent": "warning-app/1.0" } });
+                const encoded = encodeURIComponent(
+                  `${q}, Reconquista, Santa Fe, Argentina`,
+                );
+                const res = await fetch(
+                  `https://nominatim.openstreetmap.org/search?q=${encoded}&format=json&limit=1&countrycodes=ar&viewbox=${bbox}&bounded=1`,
+                  { headers: { "User-Agent": "warning-app/1.0" } },
+                );
                 const data = await res.json();
-                return data.length > 0 ? { lat: parseFloat(data[0].lat), lng: parseFloat(data[0].lon) } : null;
+                return data.length > 0
+                  ? {
+                      lat: parseFloat(data[0].lat),
+                      lng: parseFloat(data[0].lon),
+                    }
+                  : null;
               };
               const findIntersection = async (s1: string, s2: string) => {
                 const k1 = overpassKeyword(s1);
                 const k2 = overpassKeyword(s2);
                 console.log(`Overpass intersection: "${k1}" ∩ "${k2}"`);
                 const query = `[out:json][timeout:15];way["highway"]["name"~"${k1}",i](-29.30,-59.85,-28.95,-59.45)->.a;way["highway"]["name"~"${k2}",i](-29.30,-59.85,-28.95,-59.45)->.b;node(w.a)(w.b);out 1;`;
-                const res = await fetch("https://overpass-api.de/api/interpreter", { method: "POST", body: `data=${encodeURIComponent(query)}`, headers: { "Content-Type": "application/x-www-form-urlencoded" } });
+                const res = await fetch(
+                  "https://overpass-api.de/api/interpreter",
+                  {
+                    method: "POST",
+                    body: `data=${encodeURIComponent(query)}`,
+                    headers: {
+                      "Content-Type": "application/x-www-form-urlencoded",
+                    },
+                  },
+                );
                 const data = await res.json();
-                return data.elements?.length > 0 ? { lat: data.elements[0].lat, lng: data.elements[0].lon } : null;
+                return data.elements?.length > 0
+                  ? { lat: data.elements[0].lat, lng: data.elements[0].lon }
+                  : null;
               };
               let found = null;
               if (isIntersection) {
@@ -1542,7 +1962,10 @@ JSON:`;
                 found = await doGeocode(direccion);
                 if (!found) found = await doGeocode(parts[0]);
               }
-              if (found) { reportLat = found.lat; reportLng = found.lng; }
+              if (found) {
+                reportLat = found.lat;
+                reportLng = found.lng;
+              }
             } catch {}
           }
 
@@ -1550,20 +1973,49 @@ JSON:`;
           const now = new Date();
           const result = await db.query(
             `INSERT INTO "Report" (id, lat, lng, category, description, barrio, direccion, photo, photos, "isUrgent", "createdAt", "updatedAt") VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12) RETURNING *`,
-            [id, reportLat, reportLng, categoria, descripcion, barrio, direccion, null, [], false, now, now],
+            [
+              id,
+              reportLat,
+              reportLng,
+              categoria,
+              descripcion,
+              barrio,
+              direccion,
+              null,
+              [],
+              false,
+              now,
+              now,
+            ],
           );
           const newReport = result.rows[0];
           try {
-            const subscriptions = await db.query('SELECT endpoint, p256dh, auth FROM "PushSubscription"');
+            const subscriptions = await db.query(
+              'SELECT endpoint, p256dh, auth FROM "PushSubscription"',
+            );
             for (const sub of subscriptions.rows) {
-              await webPush.sendNotification({ endpoint: sub.endpoint, keys: { p256dh: sub.p256dh, auth: sub.auth } }, JSON.stringify({ title: `Reporte por voz: ${categoria}`, body: descripcion, url: "/" })).catch(() => {});
+              await webPush
+                .sendNotification(
+                  {
+                    endpoint: sub.endpoint,
+                    keys: { p256dh: sub.p256dh, auth: sub.auth },
+                  },
+                  JSON.stringify({
+                    title: `Reporte por voz: ${categoria}`,
+                    body: descripcion,
+                    url: "/",
+                  }),
+                )
+                .catch(() => {});
             }
           } catch {}
-          return new Response(JSON.stringify({ report: newReport, extracted }), {
-            status: 201,
-            headers: { ...corsHeaders, "Content-Type": "application/json" },
-          });
-
+          return new Response(
+            JSON.stringify({ report: newReport, extracted }),
+            {
+              status: 201,
+              headers: { ...corsHeaders, "Content-Type": "application/json" },
+            },
+          );
         } else {
           // Fallback JSON
           const body = await req.json();
@@ -1573,22 +2025,65 @@ JSON:`;
         }
 
         if (!transcript || !lat || !lng) {
-          return new Response(JSON.stringify({ error: "Faltan campos requeridos" }), {
-            status: 400,
-            headers: { ...corsHeaders, "Content-Type": "application/json" },
-          });
+          return new Response(
+            JSON.stringify({ error: "Faltan campos requeridos" }),
+            {
+              status: 400,
+              headers: { ...corsHeaders, "Content-Type": "application/json" },
+            },
+          );
         }
 
         // Fallback path (JSON): usar Groq NLP
-        const CATEGORIAS = ["basura","alumbrado","baches","pastizales","robo","personas_sospechosas","fugas_agua","drenaje","banquetas","semaforos","limpieza","graffiti","escombros","arboles","vandalismo","vehiculos_abandonados","iluminacion","animales_callejeros","plagas","senalizacion","estacionamiento","transporte"];
+        const CATEGORIAS = [
+          "basura",
+          "alumbrado",
+          "baches",
+          "pastizales",
+          "robo",
+          "personas_sospechosas",
+          "fugas_agua",
+          "drenaje",
+          "banquetas",
+          "semaforos",
+          "limpieza",
+          "graffiti",
+          "escombros",
+          "arboles",
+          "vandalismo",
+          "vehiculos_abandonados",
+          "iluminacion",
+          "animales_callejeros",
+          "plagas",
+          "senalizacion",
+          "estacionamiento",
+          "transporte",
+        ];
         const prompt = `Extraé los campos del siguiente mensaje de voz en Reconquista, Santa Fe, Argentina y devolvé ÚNICAMENTE un JSON. Campos: categoria (una de: ${CATEGORIAS.join(",")}), descripcion, barrio (o "Sin especificar"), direccion (calle+número o intersección), enviar_servicios (true/false). Mensaje: "${transcript.replace(/"/g, "'")}"`;
-        const groqRes = await fetch("https://api.groq.com/openai/v1/chat/completions", {
-          method: "POST",
-          headers: { "Content-Type": "application/json", "Authorization": `Bearer ${process.env.GROQ_API_KEY}` },
-          body: JSON.stringify({ model: "llama-3.1-8b-instant", messages: [{ role: "user", content: prompt }], temperature: 0.1, max_tokens: 200 }),
-        });
+        const groqRes = await fetch(
+          "https://api.groq.com/openai/v1/chat/completions",
+          {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              Authorization: `Bearer ${process.env.GROQ_API_KEY}`,
+            },
+            body: JSON.stringify({
+              model: "llama-3.1-8b-instant",
+              messages: [{ role: "user", content: prompt }],
+              temperature: 0.1,
+              max_tokens: 200,
+            }),
+          },
+        );
         if (!groqRes.ok) {
-          return new Response(JSON.stringify({ error: "Error al procesar el mensaje de voz" }), { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+          return new Response(
+            JSON.stringify({ error: "Error al procesar el mensaje de voz" }),
+            {
+              status: 500,
+              headers: { ...corsHeaders, "Content-Type": "application/json" },
+            },
+          );
         }
         const groqData = await groqRes.json();
         let extracted: any;
@@ -1598,14 +2093,22 @@ JSON:`;
           if (!jsonMatch) throw new Error("No JSON found");
           extracted = JSON.parse(jsonMatch[0]);
         } catch {
-          return new Response(JSON.stringify({ error: "No se pudo interpretar el mensaje. Intentá de nuevo.", transcript }), {
-            status: 422,
-            headers: { ...corsHeaders, "Content-Type": "application/json" },
-          });
+          return new Response(
+            JSON.stringify({
+              error: "No se pudo interpretar el mensaje. Intentá de nuevo.",
+              transcript,
+            }),
+            {
+              status: 422,
+              headers: { ...corsHeaders, "Content-Type": "application/json" },
+            },
+          );
         }
 
         // Validar categoría
-        const categoria = CATEGORIAS.includes(extracted.categoria) ? extracted.categoria : "basura";
+        const categoria = CATEGORIAS.includes(extracted.categoria)
+          ? extracted.categoria
+          : "basura";
         const descripcion = (extracted.descripcion || transcript).slice(0, 500);
         const barrio = extracted.barrio || "Sin especificar";
         const direccion = extracted.direccion || "Sin especificar";
@@ -1616,24 +2119,41 @@ JSON:`;
         if (direccion !== "Sin especificar") {
           try {
             const sepRegex = /\s+(?:y|e|-|\/|esq\.?|esquina|entre|casi)\s+/i;
-            const parts = direccion.split(sepRegex).map((s: string) => s.trim()).filter(Boolean);
+            const parts = direccion
+              .split(sepRegex)
+              .map((s: string) => s.trim())
+              .filter(Boolean);
             const isIntersection = parts.length >= 2;
 
             // Normalizar nombre de calle para búsqueda (quitar tildes, lowercase parcial)
-            const normalize = (s: string) => s.replace(/[áàä]/gi,"a").replace(/[éèë]/gi,"e").replace(/[íìï]/gi,"i").replace(/[óòö]/gi,"o").replace(/[úùü]/gi,"u");
+            const normalize = (s: string) =>
+              s
+                .replace(/[áàä]/gi, "a")
+                .replace(/[éèë]/gi, "e")
+                .replace(/[íìï]/gi, "i")
+                .replace(/[óòö]/gi, "o")
+                .replace(/[úùü]/gi, "u");
 
             // Overpass API: busca el nodo exacto donde dos calles se cruzan (bbox de Reconquista)
-            const findIntersection = async (street1: string, street2: string) => {
+            const findIntersection = async (
+              street1: string,
+              street2: string,
+            ) => {
               const query = `[out:json][timeout:15];
 way["highway"]["name"~"${normalize(street1)}",i](-29.30,-59.85,-28.95,-59.45)->.a;
 way["highway"]["name"~"${normalize(street2)}",i](-29.30,-59.85,-28.95,-59.45)->.b;
 node(w.a)(w.b);
 out 1;`;
-              const res = await fetch("https://overpass-api.de/api/interpreter", {
-                method: "POST",
-                body: `data=${encodeURIComponent(query)}`,
-                headers: { "Content-Type": "application/x-www-form-urlencoded" },
-              });
+              const res = await fetch(
+                "https://overpass-api.de/api/interpreter",
+                {
+                  method: "POST",
+                  body: `data=${encodeURIComponent(query)}`,
+                  headers: {
+                    "Content-Type": "application/x-www-form-urlencoded",
+                  },
+                },
+              );
               const data = await res.json();
               if (data.elements?.length > 0) {
                 return { lat: data.elements[0].lat, lng: data.elements[0].lon };
@@ -1644,13 +2164,17 @@ out 1;`;
             // Nominatim para calle + número
             const geocodeAddress = async (q: string) => {
               const bbox = "-59.85,-29.30,-59.45,-28.95";
-              const encoded = encodeURIComponent(`${q}, Reconquista, Santa Fe, Argentina`);
+              const encoded = encodeURIComponent(
+                `${q}, Reconquista, Santa Fe, Argentina`,
+              );
               const res = await fetch(
                 `https://nominatim.openstreetmap.org/search?q=${encoded}&format=json&limit=1&countrycodes=ar&viewbox=${bbox}&bounded=1`,
-                { headers: { "User-Agent": "warning-app/1.0" } }
+                { headers: { "User-Agent": "warning-app/1.0" } },
               );
               const data = await res.json();
-              return data.length > 0 ? { lat: parseFloat(data[0].lat), lng: parseFloat(data[0].lon) } : null;
+              return data.length > 0
+                ? { lat: parseFloat(data[0].lat), lng: parseFloat(data[0].lon) }
+                : null;
             };
 
             let found = null;
@@ -1685,20 +2209,44 @@ out 1;`;
           `INSERT INTO "Report" (id, lat, lng, category, description, barrio, direccion, photo, photos, "isUrgent", "createdAt", "updatedAt")
            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
            RETURNING *`,
-          [id, reportLat, reportLng, categoria, descripcion, barrio, direccion, null, [], false, now, now],
+          [
+            id,
+            reportLat,
+            reportLng,
+            categoria,
+            descripcion,
+            barrio,
+            direccion,
+            null,
+            [],
+            false,
+            now,
+            now,
+          ],
         );
 
         const newReport = result.rows[0];
 
         // Notificaciones push
         try {
-          const subscriptions = await db.query('SELECT endpoint, p256dh, auth FROM "PushSubscription"');
+          const subscriptions = await db.query(
+            'SELECT endpoint, p256dh, auth FROM "PushSubscription"',
+          );
           for (const sub of subscriptions.rows) {
-            await webPush.sendNotification(
-              { endpoint: sub.endpoint, keys: { p256dh: sub.p256dh, auth: sub.auth } },
-              JSON.stringify({ title: `Reporte por voz: ${categoria}`, body: descripcion, url: "/" }),
-              PUSH_OPTIONS,
-            ).catch(() => {});
+            await webPush
+              .sendNotification(
+                {
+                  endpoint: sub.endpoint,
+                  keys: { p256dh: sub.p256dh, auth: sub.auth },
+                },
+                JSON.stringify({
+                  title: `Reporte por voz: ${categoria}`,
+                  body: descripcion,
+                  url: "/",
+                }),
+                PUSH_OPTIONS,
+              )
+              .catch(() => {});
           }
         } catch {}
 
@@ -1733,10 +2281,13 @@ out 1;`;
         const { name, address, lat, lng, logo } = body;
 
         if (!name) {
-          return new Response(JSON.stringify({ error: "El campo name es requerido" }), {
-            status: 400,
-            headers: { ...corsHeaders, "Content-Type": "application/json" },
-          });
+          return new Response(
+            JSON.stringify({ error: "El campo name es requerido" }),
+            {
+              status: 400,
+              headers: { ...corsHeaders, "Content-Type": "application/json" },
+            },
+          );
         }
 
         const id = `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
@@ -1745,7 +2296,7 @@ out 1;`;
           `INSERT INTO "Supermarket" (id, name, address, lat, lng, logo)
            VALUES ($1, $2, $3, $4, $5, $6)
            RETURNING *`,
-          [id, name, address || "", lat ?? -29.15, lng ?? -59.65, logo || null]
+          [id, name, address || "", lat ?? -29.15, lng ?? -59.65, logo || null],
         );
 
         return new Response(JSON.stringify(result.rows[0]), {
@@ -1755,13 +2306,16 @@ out 1;`;
       }
 
       // GET /api/supermarkets/:id/offers - Ofertas vigentes de un supermercado
-      if (path.match(/^\/api\/supermarkets\/[^/]+\/offers$/) && method === "GET") {
+      if (
+        path.match(/^\/api\/supermarkets\/[^/]+\/offers$/) &&
+        method === "GET"
+      ) {
         const supermarketId = path.split("/")[3];
         const result = await db.query(
           `SELECT * FROM "Offer"
            WHERE "supermarketId" = $1 AND ("validUntil" IS NULL OR "validUntil" >= CURRENT_DATE)
            ORDER BY "createdAt" DESC`,
-          [supermarketId]
+          [supermarketId],
         );
         return new Response(JSON.stringify(result.rows), {
           headers: { ...corsHeaders, "Content-Type": "application/json" },
@@ -1801,10 +2355,15 @@ out 1;`;
         }
 
         if (!supermarketId || !description) {
-          return new Response(JSON.stringify({ error: "supermarketId y description son requeridos" }), {
-            status: 400,
-            headers: { ...corsHeaders, "Content-Type": "application/json" },
-          });
+          return new Response(
+            JSON.stringify({
+              error: "supermarketId y description son requeridos",
+            }),
+            {
+              status: 400,
+              headers: { ...corsHeaders, "Content-Type": "application/json" },
+            },
+          );
         }
 
         const id = `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
@@ -1813,7 +2372,14 @@ out 1;`;
           `INSERT INTO "Offer" (id, "supermarketId", description, price, photo, "validUntil")
            VALUES ($1, $2, $3, $4, $5, $6)
            RETURNING *`,
-          [id, supermarketId, description, price, photoPath, validUntil || null]
+          [
+            id,
+            supermarketId,
+            description,
+            price,
+            photoPath,
+            validUntil || null,
+          ],
         );
 
         return new Response(JSON.stringify(result.rows[0]), {
@@ -1826,7 +2392,10 @@ out 1;`;
       if (path.match(/^\/api\/offers\/[^/]+$/) && method === "PUT") {
         const id = path.split("/")[3];
         const contentType = req.headers.get("content-type") || "";
-        let description: string, price: string | null, validUntil: string | null, photoPath: string | null | undefined;
+        let description: string,
+          price: string | null,
+          validUntil: string | null,
+          photoPath: string | null | undefined;
 
         if (contentType.includes("multipart/form-data")) {
           const formData = await req.formData();
@@ -1854,20 +2423,36 @@ out 1;`;
         const updates: string[] = [];
         const values: (string | null)[] = [];
         let i = 1;
-        if (description) { updates.push(`description = $${i++}`); values.push(description); }
-        if (price !== undefined) { updates.push(`price = $${i++}`); values.push(price); }
-        if (validUntil !== undefined) { updates.push(`"validUntil" = $${i++}`); values.push(validUntil); }
-        if (photoPath !== undefined) { updates.push(`photo = $${i++}`); values.push(photoPath); }
+        if (description) {
+          updates.push(`description = $${i++}`);
+          values.push(description);
+        }
+        if (price !== undefined) {
+          updates.push(`price = $${i++}`);
+          values.push(price);
+        }
+        if (validUntil !== undefined) {
+          updates.push(`"validUntil" = $${i++}`);
+          values.push(validUntil);
+        }
+        if (photoPath !== undefined) {
+          updates.push(`photo = $${i++}`);
+          values.push(photoPath);
+        }
 
         if (updates.length === 0) {
-          return new Response(JSON.stringify({ error: "Nada que actualizar" }), {
-            status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" },
-          });
+          return new Response(
+            JSON.stringify({ error: "Nada que actualizar" }),
+            {
+              status: 400,
+              headers: { ...corsHeaders, "Content-Type": "application/json" },
+            },
+          );
         }
         values.push(id);
         const result = await db.query(
           `UPDATE "Offer" SET ${updates.join(", ")} WHERE id = $${i} RETURNING *`,
-          values
+          values,
         );
         return new Response(JSON.stringify(result.rows[0]), {
           headers: { ...corsHeaders, "Content-Type": "application/json" },
@@ -1888,14 +2473,18 @@ out 1;`;
         const body = await req.json();
         const { sessionId, section } = body;
         if (!sessionId || !section) {
-          return new Response(JSON.stringify({ error: "sessionId y section requeridos" }), {
-            status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" },
-          });
+          return new Response(
+            JSON.stringify({ error: "sessionId y section requeridos" }),
+            {
+              status: 400,
+              headers: { ...corsHeaders, "Content-Type": "application/json" },
+            },
+          );
         }
         const id = crypto.randomUUID();
         await db.query(
           `INSERT INTO "PageView" (id, "sessionId", section) VALUES ($1, $2, $3)`,
-          [id, sessionId, section]
+          [id, sessionId, section],
         );
         return new Response(JSON.stringify({ ok: true }), {
           headers: { ...corsHeaders, "Content-Type": "application/json" },
@@ -1921,10 +2510,18 @@ out 1;`;
           conversationsActive,
           reviewsTotal,
         ] = await Promise.all([
-          db.query(`SELECT COUNT(DISTINCT "sessionId") AS count FROM "PageView" WHERE "createdAt" >= CURRENT_DATE`),
-          db.query(`SELECT COUNT(DISTINCT "sessionId") AS count FROM "PageView" WHERE "createdAt" >= NOW() - INTERVAL '7 days'`),
-          db.query(`SELECT COUNT(DISTINCT "sessionId") AS count FROM "PageView" WHERE "createdAt" >= NOW() - INTERVAL '30 days'`),
-          db.query(`SELECT COUNT(DISTINCT "sessionId") AS count FROM "PageView"`),
+          db.query(
+            `SELECT COUNT(DISTINCT "sessionId") AS count FROM "PageView" WHERE "createdAt" >= CURRENT_DATE`,
+          ),
+          db.query(
+            `SELECT COUNT(DISTINCT "sessionId") AS count FROM "PageView" WHERE "createdAt" >= NOW() - INTERVAL '7 days'`,
+          ),
+          db.query(
+            `SELECT COUNT(DISTINCT "sessionId") AS count FROM "PageView" WHERE "createdAt" >= NOW() - INTERVAL '30 days'`,
+          ),
+          db.query(
+            `SELECT COUNT(DISTINCT "sessionId") AS count FROM "PageView"`,
+          ),
           db.query(`
             SELECT section,
               COUNT(*) AS visits,
@@ -1959,67 +2556,84 @@ out 1;`;
             LIMIT 6
           `),
           db.query(`SELECT COUNT(*) AS count FROM "Professional"`),
-          db.query(`SELECT COUNT(*) AS count FROM "Professional" WHERE activo = true`),
+          db.query(
+            `SELECT COUNT(*) AS count FROM "Professional" WHERE activo = true`,
+          ),
           db.query(`SELECT COUNT(*) AS count FROM "User"`),
           db.query(`SELECT COUNT(*) AS count FROM "Conversation"`),
-          db.query(`SELECT COUNT(*) AS count FROM "Conversation" WHERE status != 'completed'`),
+          db.query(
+            `SELECT COUNT(*) AS count FROM "Conversation" WHERE status != 'completed'`,
+          ),
           db.query(`SELECT COUNT(*) AS count FROM "PublicReview"`),
         ]);
 
-        return new Response(JSON.stringify({
-          uniqueVisitors: {
-            today: Number(uniqueToday.rows[0]?.count ?? 0),
-            week: Number(uniqueWeek.rows[0]?.count ?? 0),
-            month: Number(uniqueMonth.rows[0]?.count ?? 0),
-            total: Number(uniqueTotal.rows[0]?.count ?? 0),
+        return new Response(
+          JSON.stringify({
+            uniqueVisitors: {
+              today: Number(uniqueToday.rows[0]?.count ?? 0),
+              week: Number(uniqueWeek.rows[0]?.count ?? 0),
+              month: Number(uniqueMonth.rows[0]?.count ?? 0),
+              total: Number(uniqueTotal.rows[0]?.count ?? 0),
+            },
+            topSections: topSections.rows.map((r) => ({
+              section: r.section,
+              visits: Number(r.visits),
+              uniqueVisitors: Number(r.uniqueVisitors),
+            })),
+            dailyVisits: dailyVisits.rows.map((r) => ({
+              date: r.date,
+              visits: Number(r.visits),
+              uniqueVisitors: Number(r.uniqueVisitors),
+            })),
+            totalReports: Number(totalReports.rows[0]?.count ?? 0),
+            reportsByCategory: reportsByCategory.rows.map((r) => ({
+              category: r.category,
+              count: Number(r.count),
+            })),
+            topBarrios: topBarrios.rows.map((r) => ({
+              barrio: r.barrio,
+              count: Number(r.count),
+            })),
+            professionals: {
+              total: Number(professionalsTotal.rows[0]?.count ?? 0),
+              active: Number(professionalsActive.rows[0]?.count ?? 0),
+            },
+            users: Number(usersTotal.rows[0]?.count ?? 0),
+            conversations: {
+              total: Number(conversationsTotal.rows[0]?.count ?? 0),
+              active: Number(conversationsActive.rows[0]?.count ?? 0),
+            },
+            reviews: Number(reviewsTotal.rows[0]?.count ?? 0),
+          }),
+          {
+            headers: { ...corsHeaders, "Content-Type": "application/json" },
           },
-          topSections: topSections.rows.map(r => ({
-            section: r.section,
-            visits: Number(r.visits),
-            uniqueVisitors: Number(r.uniqueVisitors),
-          })),
-          dailyVisits: dailyVisits.rows.map(r => ({
-            date: r.date,
-            visits: Number(r.visits),
-            uniqueVisitors: Number(r.uniqueVisitors),
-          })),
-          totalReports: Number(totalReports.rows[0]?.count ?? 0),
-          reportsByCategory: reportsByCategory.rows.map(r => ({ category: r.category, count: Number(r.count) })),
-          topBarrios: topBarrios.rows.map(r => ({ barrio: r.barrio, count: Number(r.count) })),
-          professionals: {
-            total: Number(professionalsTotal.rows[0]?.count ?? 0),
-            active: Number(professionalsActive.rows[0]?.count ?? 0),
-          },
-          users: Number(usersTotal.rows[0]?.count ?? 0),
-          conversations: {
-            total: Number(conversationsTotal.rows[0]?.count ?? 0),
-            active: Number(conversationsActive.rows[0]?.count ?? 0),
-          },
-          reviews: Number(reviewsTotal.rows[0]?.count ?? 0),
-        }), {
-          headers: { ...corsHeaders, "Content-Type": "application/json" },
-        });
+        );
       }
 
       // POST /api/ai/generate-description — genera descripcion de perfil con IA
       if (path === "/api/ai/generate-description" && method === "POST") {
-        const clerkUserId = await verifyClerkToken(req);
-        if (!clerkUserId) return new Response(JSON.stringify({ error: "No autorizado" }), { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+        // Opcional: verificar token si está disponible, pero permitir sin autenticación
+        const clerkUserId = await verifyClerkToken(req).catch(() => null);
 
-        const { oficios, rubro, nombre, barrio, anios, zona } = await req.json() as {
-          oficios?: string[];
-          rubro?: string;
-          nombre: string;
-          barrio: string;
-          anios?: string;
-          zona?: string;
-        };
+        const { oficios, rubro, nombre, barrio, anios, zona } =
+          (await req.json()) as {
+            oficios?: string[];
+            rubro?: string;
+            nombre: string;
+            barrio?: string;
+            anios?: string;
+            zona?: string;
+          };
 
         const esProfesional = oficios?.length;
         const esComercio = !!rubro;
 
-        if ((!esProfesional && !esComercio) || !nombre || !barrio) {
-          return new Response(JSON.stringify({ error: "Faltan datos" }), { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+        if ((!esProfesional && !esComercio) || !nombre) {
+          return new Response(JSON.stringify({ error: "Faltan datos" }), {
+            status: 400,
+            headers: { ...corsHeaders, "Content-Type": "application/json" },
+          });
         }
 
         const prompt = esProfesional
@@ -2027,7 +2641,7 @@ out 1;`;
 
 Datos:
 - Oficios: ${oficios!.join(", ")}
-- Barrio: ${barrio}
+${barrio ? `- Barrio: ${barrio}` : ""}
 ${anios ? `- Años de experiencia: ${anios}` : ""}
 ${zona ? `- Zonas donde trabaja: ${zona}` : ""}
 
@@ -2042,7 +2656,7 @@ La descripción debe:
 
 Datos:
 - Rubro: ${rubro}
-- Barrio: ${barrio}
+${barrio ? `- Barrio: ${barrio}` : ""}
 ${zona ? `- Zona de entrega o atención: ${zona}` : ""}
 
 La descripción debe:
@@ -2053,55 +2667,95 @@ La descripción debe:
 - Invitar a los clientes a contactarse
 - Devolvé SOLO la descripción, sin título, sin comillas, sin aclaraciones`;
 
-        const groqRes = await fetch("https://api.groq.com/openai/v1/chat/completions", {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            "Authorization": `Bearer ${process.env.GROQ_API_KEY}`,
+        const groqRes = await fetch(
+          "https://api.groq.com/openai/v1/chat/completions",
+          {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              Authorization: `Bearer ${process.env.GROQ_API_KEY}`,
+            },
+            body: JSON.stringify({
+              model: "llama-3.1-8b-instant",
+              max_tokens: 400,
+              messages: [{ role: "user", content: prompt }],
+            }),
           },
-          body: JSON.stringify({
-            model: "llama-3.1-8b-instant",
-            max_tokens: 400,
-            messages: [{ role: "user", content: prompt }],
-          }),
-        });
+        );
 
-        const groqData = await groqRes.json() as { choices: { message: { content: string } }[] };
+        const groqData = (await groqRes.json()) as {
+          choices: { message: { content: string } }[];
+        };
         const text = groqData.choices?.[0]?.message?.content?.trim() ?? "";
-        return new Response(JSON.stringify({ descripcion: text }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+        return new Response(JSON.stringify({ descripcion: text }), {
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
       }
 
       // POST /api/ai/generate-outreach — genera mensaje de WhatsApp para captar comercios (admin only)
       if (path === "/api/ai/generate-outreach" && method === "POST") {
-        const clerkUserId = await verifyClerkToken(req);
-        if (!clerkUserId) return new Response(JSON.stringify({ error: "No autorizado" }), { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } });
-        const admins = (process.env.ADMIN_CLERK_IDS || "").split(",").map(s => s.trim()).filter(Boolean);
-        if (!admins.includes(clerkUserId)) return new Response(JSON.stringify({ error: "Acceso denegado" }), { status: 403, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+        const clerkUserId = await verifyClerkToken(req).catch(() => null);
+        if (!clerkUserId)
+          return new Response(JSON.stringify({ error: "No autorizado" }), {
+            status: 401,
+            headers: { ...corsHeaders, "Content-Type": "application/json" },
+          });
+        const admins = (process.env.ADMIN_CLERK_IDS || "")
+          .split(",")
+          .map((s) => s.trim())
+          .filter(Boolean);
+        if (!admins.includes(clerkUserId))
+          return new Response(JSON.stringify({ error: "Acceso denegado" }), {
+            status: 403,
+            headers: { ...corsHeaders, "Content-Type": "application/json" },
+          });
 
-        const { nombre, rubro, contacto } = await req.json() as { nombre: string; rubro?: string; contacto?: string };
-        if (!nombre?.trim()) return new Response(JSON.stringify({ error: "Falta el nombre del comercio" }), { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+        const { nombre, rubro, contacto } = (await req.json()) as {
+          nombre: string;
+          rubro?: string;
+          contacto?: string;
+        };
+        if (!nombre?.trim())
+          return new Response(
+            JSON.stringify({ error: "Falta el nombre del comercio" }),
+            {
+              status: 400,
+              headers: { ...corsHeaders, "Content-Type": "application/json" },
+            },
+          );
 
         // La IA solo genera la línea personalizada del rubro (1 oración).
         // El resto del mensaje es un template fijo para garantizar calidad y consistencia.
         let lineaPersonalizada = "";
         if (rubro) {
           const promptRubro = `En una sola oración corta y casual (español rioplatense), explicá cómo el rubro "${rubro}" puede beneficiarse de tener un perfil digital gratuito con catálogo, fotos y botón de WhatsApp en una app local. Empezá con "Es una herramienta para que puedan". Devolvé SOLO esa oración, sin comillas.`;
-          const groqRes = await fetch("https://api.groq.com/openai/v1/chat/completions", {
-            method: "POST",
-            headers: { "Content-Type": "application/json", "Authorization": `Bearer ${process.env.GROQ_API_KEY}` },
-            body: JSON.stringify({
-              model: "llama-3.1-8b-instant",
-              max_tokens: 80,
-              temperature: 0.7,
-              messages: [{ role: "user", content: promptRubro }],
-            }),
-          });
-          const groqData = await groqRes.json() as { choices: { message: { content: string } }[] };
-          lineaPersonalizada = groqData.choices?.[0]?.message?.content?.trim() ?? "";
+          const groqRes = await fetch(
+            "https://api.groq.com/openai/v1/chat/completions",
+            {
+              method: "POST",
+              headers: {
+                "Content-Type": "application/json",
+                Authorization: `Bearer ${process.env.GROQ_API_KEY}`,
+              },
+              body: JSON.stringify({
+                model: "llama-3.1-8b-instant",
+                max_tokens: 80,
+                temperature: 0.7,
+                messages: [{ role: "user", content: promptRubro }],
+              }),
+            },
+          );
+          const groqData = (await groqRes.json()) as {
+            choices: { message: { content: string } }[];
+          };
+          lineaPersonalizada =
+            groqData.choices?.[0]?.message?.content?.trim() ?? "";
         }
 
         const saludo = contacto ? `Hola ${contacto}!` : "Hola!";
-        const lineaRubro = lineaPersonalizada || `Es una herramienta para que los vecinos de Reconquista que buscan ${rubro ? `un ${rubro.toLowerCase()}` : "un comercio local"} te encuentren a vos: perfil con fotos, catálogo y WhatsApp directo.`;
+        const lineaRubro =
+          lineaPersonalizada ||
+          `Es una herramienta para que los vecinos de Reconquista que buscan ${rubro ? `un ${rubro.toLowerCase()}` : "un comercio local"} te encuentren a vos: perfil con fotos, catálogo y WhatsApp directo.`;
 
         const mensaje = `${saludo} Soy el creador de reportesreconquista.com, la app gratuita de Reconquista.
 
@@ -2113,7 +2767,9 @@ En las próximas semanas vamos a tener el apoyo de empresas como Elías Yapur y 
 
 https://reportesreconquista.com`;
 
-        return new Response(JSON.stringify({ mensaje }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+        return new Response(JSON.stringify({ mensaje }), {
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
       }
 
       // ═══════════════════════════════════════════════════════════════════
@@ -2123,37 +2779,79 @@ https://reportesreconquista.com`;
       // POST /api/comercios — crear perfil de comercio (requiere auth)
       if (path === "/api/comercios" && method === "POST") {
         if (!checkStrictRateLimit(req)) {
-          return new Response(JSON.stringify({ error: "Demasiadas solicitudes. Intentá en un momento." }), { status: 429, headers: { ...corsHeaders, "Content-Type": "application/json", "Retry-After": "60" } });
+          return new Response(
+            JSON.stringify({
+              error: "Demasiadas solicitudes. Intentá en un momento.",
+            }),
+            {
+              status: 429,
+              headers: {
+                ...corsHeaders,
+                "Content-Type": "application/json",
+                "Retry-After": "60",
+              },
+            },
+          );
         }
-        const clerkUserId = await verifyClerkToken(req);
-        if (!clerkUserId) return new Response(JSON.stringify({ error: "No autorizado" }), { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } });
-        const existing = await prisma.comercio.findUnique({ where: { clerkUserId } });
-        if (existing) return new Response(JSON.stringify({ error: "Ya tenés un perfil de comercio creado" }), { status: 409, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+        const clerkUserId = await verifyClerkToken(req).catch(() => null);
+        if (!clerkUserId)
+          return new Response(JSON.stringify({ error: "No autorizado" }), {
+            status: 401,
+            headers: { ...corsHeaders, "Content-Type": "application/json" },
+          });
+        const existing = await prisma.comercio.findUnique({
+          where: { clerkUserId },
+        });
+        if (existing)
+          return new Response(
+            JSON.stringify({ error: "Ya tenés un perfil de comercio creado" }),
+            {
+              status: 409,
+              headers: { ...corsHeaders, "Content-Type": "application/json" },
+            },
+          );
         const formData = await req.formData();
         const nombre = sanitizeText(formData.get("nombre") as string, 100);
         const rubro = sanitizeText(formData.get("rubro") as string, 100);
         const barrio = sanitizeText(formData.get("barrio") as string, 100);
         const whatsapp = sanitizeText(formData.get("whatsapp") as string, 30);
-        const telefono = sanitizeText(formData.get("telefono") as string, 30) || undefined;
-        const direccion = sanitizeText(formData.get("direccion") as string, 200) || undefined;
-        const horario = sanitizeText(formData.get("horario") as string, 200) || undefined;
-        const descripcion = sanitizeText(formData.get("descripcion") as string, 500) || undefined;
+        const telefono =
+          sanitizeText(formData.get("telefono") as string, 30) || undefined;
+        const direccion =
+          sanitizeText(formData.get("direccion") as string, 200) || undefined;
+        const horario =
+          sanitizeText(formData.get("horario") as string, 200) || undefined;
+        const descripcion =
+          sanitizeText(formData.get("descripcion") as string, 500) || undefined;
         if (!nombre || !rubro || !barrio || !whatsapp) {
-          return new Response(JSON.stringify({ error: "Faltan campos obligatorios: nombre, rubro, barrio, whatsapp" }), { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+          return new Response(
+            JSON.stringify({
+              error:
+                "Faltan campos obligatorios: nombre, rubro, barrio, whatsapp",
+            }),
+            {
+              status: 400,
+              headers: { ...corsHeaders, "Content-Type": "application/json" },
+            },
+          );
         }
-        const slugBase = `${nombre}-${rubro}-${Math.random().toString(36).slice(2, 7)}`
-          .toLowerCase()
-          .normalize("NFD")
-          .replace(/[\u0300-\u036f]/g, "")
-          .replace(/[^a-z0-9]+/g, "-")
-          .replace(/^-|-$/g, "");
+        const slugBase =
+          `${nombre}-${rubro}-${Math.random().toString(36).slice(2, 7)}`
+            .toLowerCase()
+            .normalize("NFD")
+            .replace(/[\u0300-\u036f]/g, "")
+            .replace(/[^a-z0-9]+/g, "-")
+            .replace(/^-|-$/g, "");
         // foto principal
         let fotoUrl: string | undefined;
         const mainPhoto = formData.get("photo") as File | null;
         if (mainPhoto && mainPhoto.size > 0) {
           const ext = mainPhoto.name.split(".").pop()?.toLowerCase() || "jpg";
           const filename = `comercio_${crypto.randomUUID()}.${ext}`;
-          await Bun.write(join(uploadsDir, filename), await mainPhoto.arrayBuffer());
+          await Bun.write(
+            join(uploadsDir, filename),
+            await mainPhoto.arrayBuffer(),
+          );
           fotoUrl = "/uploads/" + filename;
         }
         // galería
@@ -2169,9 +2867,26 @@ https://reportesreconquista.com`;
         const totalComercies = await prisma.comercio.count();
         const isFounder = totalComercies < 20;
         const comercio = await prisma.comercio.create({
-          data: { clerkUserId, nombre, rubro, slug: slugBase, descripcion, direccion, barrio, whatsapp, telefono, horario, foto: fotoUrl, fotos, isFounder },
+          data: {
+            clerkUserId,
+            nombre,
+            rubro,
+            slug: slugBase,
+            descripcion,
+            direccion,
+            barrio,
+            whatsapp,
+            telefono,
+            horario,
+            foto: fotoUrl,
+            fotos,
+            isFounder,
+          },
         });
-        return new Response(JSON.stringify(comercio), { status: 201, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+        return new Response(JSON.stringify(comercio), {
+          status: 201,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
       }
 
       // GET /api/comercios — listar comercios activos (público)
@@ -2181,33 +2896,103 @@ https://reportesreconquista.com`;
         const comercios = await prisma.comercio.findMany({
           where: {
             activo: true,
-            ...(barrio ? { barrio: { contains: barrio, mode: "insensitive" } } : {}),
-            ...(rubro ? { rubro: { contains: rubro, mode: "insensitive" } } : {}),
+            ...(barrio
+              ? { barrio: { contains: barrio, mode: "insensitive" } }
+              : {}),
+            ...(rubro
+              ? { rubro: { contains: rubro, mode: "insensitive" } }
+              : {}),
           },
-          select: { id: true, nombre: true, rubro: true, slug: true, barrio: true, foto: true, logo: true, descripcion: true, activo: true, isPremium: true, isFounder: true, createdAt: true },
-          orderBy: [{ isPremium: "desc" }, { isFounder: "desc" }, { createdAt: "asc" }],
+          select: {
+            id: true,
+            nombre: true,
+            rubro: true,
+            slug: true,
+            barrio: true,
+            foto: true,
+            logo: true,
+            descripcion: true,
+            activo: true,
+            isPremium: true,
+            isFounder: true,
+            createdAt: true,
+          },
+          orderBy: [
+            { isPremium: "desc" },
+            { isFounder: "desc" },
+            { createdAt: "asc" },
+          ],
         });
-        return new Response(JSON.stringify(comercios), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+        return new Response(JSON.stringify(comercios), {
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
       }
 
       // GET /api/comercios/me — obtener mi comercio (requiere auth)
       if (path === "/api/comercios/me" && method === "GET") {
-        const clerkUserId = await verifyClerkToken(req);
-        if (!clerkUserId) return new Response(JSON.stringify({ error: "No autorizado" }), { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+        const clerkUserId = await verifyClerkToken(req).catch(() => null);
+        if (!clerkUserId)
+          return new Response(JSON.stringify({ error: "No autorizado" }), {
+            status: 401,
+            headers: { ...corsHeaders, "Content-Type": "application/json" },
+          });
         const comercio = await prisma.comercio.findUnique({
           where: { clerkUserId },
-          select: { id: true, nombre: true, rubro: true, slug: true, descripcion: true, direccion: true, barrio: true, whatsapp: true, telefono: true, horario: true, foto: true, fotos: true, logo: true, activo: true, isPremium: true, isFounder: true, createdAt: true, updatedAt: true, offers: { orderBy: { createdAt: "desc" } }, productos: { orderBy: { createdAt: "desc" } } },
+          select: {
+            id: true,
+            nombre: true,
+            rubro: true,
+            slug: true,
+            descripcion: true,
+            direccion: true,
+            barrio: true,
+            whatsapp: true,
+            telefono: true,
+            horario: true,
+            foto: true,
+            fotos: true,
+            logo: true,
+            activo: true,
+            isPremium: true,
+            isFounder: true,
+            createdAt: true,
+            updatedAt: true,
+            offers: { orderBy: { createdAt: "desc" } },
+            productos: { orderBy: { createdAt: "desc" } },
+          },
         });
-        if (!comercio) return new Response(JSON.stringify({ error: "No tenés un comercio registrado" }), { status: 404, headers: { ...corsHeaders, "Content-Type": "application/json" } });
-        return new Response(JSON.stringify(comercio), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+        if (!comercio)
+          return new Response(
+            JSON.stringify({ error: "No tenés un comercio registrado" }),
+            {
+              status: 404,
+              headers: { ...corsHeaders, "Content-Type": "application/json" },
+            },
+          );
+        return new Response(JSON.stringify(comercio), {
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
       }
 
       // PUT /api/comercios/me — actualizar mi comercio (requiere auth)
       if (path === "/api/comercios/me" && method === "PUT") {
-        const clerkUserId = await verifyClerkToken(req);
-        if (!clerkUserId) return new Response(JSON.stringify({ error: "No autorizado" }), { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } });
-        const comercioExistente = await prisma.comercio.findUnique({ where: { clerkUserId } });
-        if (!comercioExistente) return new Response(JSON.stringify({ error: "No tenés un comercio registrado" }), { status: 404, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+        const clerkUserId = await verifyClerkToken(req).catch(() => null);
+        if (!clerkUserId)
+          return new Response(JSON.stringify({ error: "No autorizado" }), {
+            status: 401,
+            headers: { ...corsHeaders, "Content-Type": "application/json" },
+          });
+        const comercioExistente = await prisma.comercio.findUnique({
+          where: { clerkUserId },
+        });
+        if (!comercioExistente)
+          return new Response(
+            JSON.stringify({ error: "No tenés un comercio registrado" }),
+            {
+              status: 404,
+              headers: { ...corsHeaders, "Content-Type": "application/json" },
+            },
+          );
         const formData = await req.formData();
         const updateData: Record<string, unknown> = {};
         const nombre = formData.get("nombre") as string | null;
@@ -2222,16 +3007,23 @@ https://reportesreconquista.com`;
         if (rubro) updateData.rubro = sanitizeText(rubro, 100);
         if (barrio) updateData.barrio = sanitizeText(barrio, 100);
         if (whatsapp) updateData.whatsapp = sanitizeText(whatsapp, 30);
-        if (telefono !== null) updateData.telefono = sanitizeText(telefono, 30) || null;
-        if (direccion !== null) updateData.direccion = sanitizeText(direccion, 200) || null;
-        if (horario !== null) updateData.horario = sanitizeText(horario, 200) || null;
-        if (descripcion !== null) updateData.descripcion = sanitizeText(descripcion, 500) || null;
+        if (telefono !== null)
+          updateData.telefono = sanitizeText(telefono, 30) || null;
+        if (direccion !== null)
+          updateData.direccion = sanitizeText(direccion, 200) || null;
+        if (horario !== null)
+          updateData.horario = sanitizeText(horario, 200) || null;
+        if (descripcion !== null)
+          updateData.descripcion = sanitizeText(descripcion, 500) || null;
         // foto principal
         const mainPhoto = formData.get("photo") as File | null;
         if (mainPhoto && mainPhoto.size > 0) {
           const ext = mainPhoto.name.split(".").pop()?.toLowerCase() || "jpg";
           const filename = `comercio_${crypto.randomUUID()}.${ext}`;
-          await Bun.write(join(uploadsDir, filename), await mainPhoto.arrayBuffer());
+          await Bun.write(
+            join(uploadsDir, filename),
+            await mainPhoto.arrayBuffer(),
+          );
           updateData.foto = "/uploads/" + filename;
         }
         // galería — agrega a las existentes
@@ -2247,78 +3039,201 @@ https://reportesreconquista.com`;
         if (nuevasFotos.length > 0) {
           updateData.fotos = [...comercioExistente.fotos, ...nuevasFotos];
         }
-        const comercio = await prisma.comercio.update({ where: { clerkUserId }, data: updateData });
-        return new Response(JSON.stringify(comercio), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+        const comercio = await prisma.comercio.update({
+          where: { clerkUserId },
+          data: updateData,
+        });
+        return new Response(JSON.stringify(comercio), {
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
       }
 
       // POST /api/comercios/me/offers — crear oferta (requiere auth)
       if (path === "/api/comercios/me/offers" && method === "POST") {
         if (!checkStrictRateLimit(req)) {
-          return new Response(JSON.stringify({ error: "Demasiadas solicitudes. Intentá en un momento." }), { status: 429, headers: { ...corsHeaders, "Content-Type": "application/json", "Retry-After": "60" } });
+          return new Response(
+            JSON.stringify({
+              error: "Demasiadas solicitudes. Intentá en un momento.",
+            }),
+            {
+              status: 429,
+              headers: {
+                ...corsHeaders,
+                "Content-Type": "application/json",
+                "Retry-After": "60",
+              },
+            },
+          );
         }
-        const clerkUserId = await verifyClerkToken(req);
-        if (!clerkUserId) return new Response(JSON.stringify({ error: "No autorizado" }), { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } });
-        const comercio = await prisma.comercio.findUnique({ where: { clerkUserId } });
-        if (!comercio) return new Response(JSON.stringify({ error: "No tenés un comercio registrado" }), { status: 404, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+        const clerkUserId = await verifyClerkToken(req).catch(() => null);
+        if (!clerkUserId)
+          return new Response(JSON.stringify({ error: "No autorizado" }), {
+            status: 401,
+            headers: { ...corsHeaders, "Content-Type": "application/json" },
+          });
+        const comercio = await prisma.comercio.findUnique({
+          where: { clerkUserId },
+        });
+        if (!comercio)
+          return new Response(
+            JSON.stringify({ error: "No tenés un comercio registrado" }),
+            {
+              status: 404,
+              headers: { ...corsHeaders, "Content-Type": "application/json" },
+            },
+          );
         const formData = await req.formData();
         const titulo = sanitizeText(formData.get("titulo") as string, 150);
-        if (!titulo) return new Response(JSON.stringify({ error: "El título es obligatorio" }), { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } });
-        const descripcion = sanitizeText(formData.get("descripcion") as string, 500) || undefined;
-        const terminos = sanitizeText(formData.get("terminos") as string, 1000) || undefined;
-        const precio = sanitizeText(formData.get("precio") as string, 50) || undefined;
+        if (!titulo)
+          return new Response(
+            JSON.stringify({ error: "El título es obligatorio" }),
+            {
+              status: 400,
+              headers: { ...corsHeaders, "Content-Type": "application/json" },
+            },
+          );
+        const descripcion =
+          sanitizeText(formData.get("descripcion") as string, 500) || undefined;
+        const terminos =
+          sanitizeText(formData.get("terminos") as string, 1000) || undefined;
+        const precio =
+          sanitizeText(formData.get("precio") as string, 50) || undefined;
         const validaHastaRaw = formData.get("validaHasta") as string | null;
-        const validaHasta = validaHastaRaw ? new Date(validaHastaRaw) : undefined;
+        const validaHasta = validaHastaRaw
+          ? new Date(validaHastaRaw)
+          : undefined;
         let fotoUrl: string | undefined;
         const photoFile = formData.get("photo") as File | null;
         if (photoFile && photoFile.size > 0) {
           const ext = photoFile.name.split(".").pop()?.toLowerCase() || "jpg";
           const filename = `comercio_${crypto.randomUUID()}.${ext}`;
-          await Bun.write(join(uploadsDir, filename), await photoFile.arrayBuffer());
+          await Bun.write(
+            join(uploadsDir, filename),
+            await photoFile.arrayBuffer(),
+          );
           fotoUrl = "/uploads/" + filename;
         }
         const offer = await prisma.comercioOffer.create({
-          data: { comercioId: comercio.id, titulo, descripcion, terminos, precio, foto: fotoUrl, validaHasta },
+          data: {
+            comercioId: comercio.id,
+            titulo,
+            descripcion,
+            terminos,
+            precio,
+            foto: fotoUrl,
+            validaHasta,
+          },
         });
-        return new Response(JSON.stringify(offer), { status: 201, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+        return new Response(JSON.stringify(offer), {
+          status: 201,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
       }
 
       // DELETE /api/comercios/me/offers/:offerId — eliminar oferta (requiere auth)
-      if (path.match(/^\/api\/comercios\/me\/offers\/[^/]+$/) && method === "DELETE") {
-        const clerkUserId = await verifyClerkToken(req);
-        if (!clerkUserId) return new Response(JSON.stringify({ error: "No autorizado" }), { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      if (
+        path.match(/^\/api\/comercios\/me\/offers\/[^/]+$/) &&
+        method === "DELETE"
+      ) {
+        const clerkUserId = await verifyClerkToken(req).catch(() => null);
+        if (!clerkUserId)
+          return new Response(JSON.stringify({ error: "No autorizado" }), {
+            status: 401,
+            headers: { ...corsHeaders, "Content-Type": "application/json" },
+          });
         const offerId = path.split("/api/comercios/me/offers/")[1];
-        const comercio = await prisma.comercio.findUnique({ where: { clerkUserId } });
-        if (!comercio) return new Response(JSON.stringify({ error: "No tenés un comercio registrado" }), { status: 404, headers: { ...corsHeaders, "Content-Type": "application/json" } });
-        const offer = await prisma.comercioOffer.findUnique({ where: { id: offerId } });
-        if (!offer || offer.comercioId !== comercio.id) return new Response(JSON.stringify({ error: "Oferta no encontrada" }), { status: 404, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+        const comercio = await prisma.comercio.findUnique({
+          where: { clerkUserId },
+        });
+        if (!comercio)
+          return new Response(
+            JSON.stringify({ error: "No tenés un comercio registrado" }),
+            {
+              status: 404,
+              headers: { ...corsHeaders, "Content-Type": "application/json" },
+            },
+          );
+        const offer = await prisma.comercioOffer.findUnique({
+          where: { id: offerId },
+        });
+        if (!offer || offer.comercioId !== comercio.id)
+          return new Response(
+            JSON.stringify({ error: "Oferta no encontrada" }),
+            {
+              status: 404,
+              headers: { ...corsHeaders, "Content-Type": "application/json" },
+            },
+          );
         await prisma.comercioOffer.delete({ where: { id: offerId } });
-        return new Response(JSON.stringify({ ok: true }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+        return new Response(JSON.stringify({ ok: true }), {
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
       }
 
       // PATCH /api/comercios/me/offers/:offerId — editar o toggle oferta (requiere auth)
-      if (path.match(/^\/api\/comercios\/me\/offers\/[^/]+$/) && method === "PATCH") {
-        const clerkUserId = await verifyClerkToken(req);
-        if (!clerkUserId) return new Response(JSON.stringify({ error: "No autorizado" }), { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      if (
+        path.match(/^\/api\/comercios\/me\/offers\/[^/]+$/) &&
+        method === "PATCH"
+      ) {
+        const clerkUserId = await verifyClerkToken(req).catch(() => null);
+        if (!clerkUserId)
+          return new Response(JSON.stringify({ error: "No autorizado" }), {
+            status: 401,
+            headers: { ...corsHeaders, "Content-Type": "application/json" },
+          });
         const offerId = path.split("/api/comercios/me/offers/")[1];
-        const comercio = await prisma.comercio.findUnique({ where: { clerkUserId } });
-        if (!comercio) return new Response(JSON.stringify({ error: "No tenés un comercio registrado" }), { status: 404, headers: { ...corsHeaders, "Content-Type": "application/json" } });
-        const offer = await prisma.comercioOffer.findUnique({ where: { id: offerId } });
-        if (!offer || offer.comercioId !== comercio.id) return new Response(JSON.stringify({ error: "Oferta no encontrada" }), { status: 404, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+        const comercio = await prisma.comercio.findUnique({
+          where: { clerkUserId },
+        });
+        if (!comercio)
+          return new Response(
+            JSON.stringify({ error: "No tenés un comercio registrado" }),
+            {
+              status: 404,
+              headers: { ...corsHeaders, "Content-Type": "application/json" },
+            },
+          );
+        const offer = await prisma.comercioOffer.findUnique({
+          where: { id: offerId },
+        });
+        if (!offer || offer.comercioId !== comercio.id)
+          return new Response(
+            JSON.stringify({ error: "Oferta no encontrada" }),
+            {
+              status: 404,
+              headers: { ...corsHeaders, "Content-Type": "application/json" },
+            },
+          );
         const contentType = req.headers.get("content-type") ?? "";
         if (contentType.includes("application/json")) {
           const body = await req.json();
           const updated = await prisma.comercioOffer.update({
             where: { id: offerId },
-            data: { activa: typeof body.activa === "boolean" ? body.activa : undefined },
+            data: {
+              activa:
+                typeof body.activa === "boolean" ? body.activa : undefined,
+            },
           });
-          return new Response(JSON.stringify(updated), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+          return new Response(JSON.stringify(updated), {
+            headers: { ...corsHeaders, "Content-Type": "application/json" },
+          });
         }
         const formData = await req.formData();
         const titulo = sanitizeText(formData.get("titulo") as string, 150);
-        if (!titulo) return new Response(JSON.stringify({ error: "El título es obligatorio" }), { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } });
-        const descripcion = sanitizeText(formData.get("descripcion") as string, 500) || null;
-        const terminos = sanitizeText(formData.get("terminos") as string, 1000) || null;
-        const precio = sanitizeText(formData.get("precio") as string, 50) || null;
+        if (!titulo)
+          return new Response(
+            JSON.stringify({ error: "El título es obligatorio" }),
+            {
+              status: 400,
+              headers: { ...corsHeaders, "Content-Type": "application/json" },
+            },
+          );
+        const descripcion =
+          sanitizeText(formData.get("descripcion") as string, 500) || null;
+        const terminos =
+          sanitizeText(formData.get("terminos") as string, 1000) || null;
+        const precio =
+          sanitizeText(formData.get("precio") as string, 50) || null;
         const validaHastaRaw = formData.get("validaHasta") as string | null;
         const validaHasta = validaHastaRaw ? new Date(validaHastaRaw) : null;
         let fotoUrl: string | null | undefined;
@@ -2327,30 +3242,71 @@ https://reportesreconquista.com`;
         if (photoFile && photoFile.size > 0) {
           const ext = photoFile.name.split(".").pop()?.toLowerCase() || "jpg";
           const filename = `comercio_${crypto.randomUUID()}.${ext}`;
-          await Bun.write(join(uploadsDir, filename), await photoFile.arrayBuffer());
+          await Bun.write(
+            join(uploadsDir, filename),
+            await photoFile.arrayBuffer(),
+          );
           fotoUrl = "/uploads/" + filename;
         } else if (clearPhoto === "1") {
           fotoUrl = null;
         }
         const updated = await prisma.comercioOffer.update({
           where: { id: offerId },
-          data: { titulo, descripcion, terminos, precio, validaHasta, ...(fotoUrl !== undefined ? { foto: fotoUrl } : {}) },
+          data: {
+            titulo,
+            descripcion,
+            terminos,
+            precio,
+            validaHasta,
+            ...(fotoUrl !== undefined ? { foto: fotoUrl } : {}),
+          },
         });
-        return new Response(JSON.stringify(updated), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+        return new Response(JSON.stringify(updated), {
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
       }
 
       // POST /api/comercios/me/productos — crear producto (requiere auth)
       if (path === "/api/comercios/me/productos" && method === "POST") {
-        if (!checkStrictRateLimit(req)) return new Response(JSON.stringify({ error: "Demasiadas solicitudes." }), { status: 429, headers: { ...corsHeaders, "Content-Type": "application/json" } });
-        const clerkUserId = await verifyClerkToken(req);
-        if (!clerkUserId) return new Response(JSON.stringify({ error: "No autorizado" }), { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } });
-        const comercio = await prisma.comercio.findUnique({ where: { clerkUserId } });
-        if (!comercio) return new Response(JSON.stringify({ error: "No tenés un comercio registrado" }), { status: 404, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+        if (!checkStrictRateLimit(req))
+          return new Response(
+            JSON.stringify({ error: "Demasiadas solicitudes." }),
+            {
+              status: 429,
+              headers: { ...corsHeaders, "Content-Type": "application/json" },
+            },
+          );
+        const clerkUserId = await verifyClerkToken(req).catch(() => null);
+        if (!clerkUserId)
+          return new Response(JSON.stringify({ error: "No autorizado" }), {
+            status: 401,
+            headers: { ...corsHeaders, "Content-Type": "application/json" },
+          });
+        const comercio = await prisma.comercio.findUnique({
+          where: { clerkUserId },
+        });
+        if (!comercio)
+          return new Response(
+            JSON.stringify({ error: "No tenés un comercio registrado" }),
+            {
+              status: 404,
+              headers: { ...corsHeaders, "Content-Type": "application/json" },
+            },
+          );
         const formData = await req.formData();
         const nombre = sanitizeText(formData.get("nombre") as string, 150);
-        if (!nombre) return new Response(JSON.stringify({ error: "El nombre es obligatorio" }), { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } });
-        const descripcion = sanitizeText(formData.get("descripcion") as string, 500) || null;
-        const precio = sanitizeText(formData.get("precio") as string, 50) || null;
+        if (!nombre)
+          return new Response(
+            JSON.stringify({ error: "El nombre es obligatorio" }),
+            {
+              status: 400,
+              headers: { ...corsHeaders, "Content-Type": "application/json" },
+            },
+          );
+        const descripcion =
+          sanitizeText(formData.get("descripcion") as string, 500) || null;
+        const precio =
+          sanitizeText(formData.get("precio") as string, 50) || null;
         const tipoRaw = formData.get("tipo") as string | null;
         const tipo = tipoRaw === "servicio" ? "servicio" : "producto";
         let foto: string | null = null;
@@ -2358,37 +3314,107 @@ https://reportesreconquista.com`;
         if (photoFile && photoFile.size > 0) {
           const ext = photoFile.name.split(".").pop()?.toLowerCase() || "jpg";
           const filename = `producto_${crypto.randomUUID()}.${ext}`;
-          await Bun.write(join(uploadsDir, filename), await photoFile.arrayBuffer());
+          await Bun.write(
+            join(uploadsDir, filename),
+            await photoFile.arrayBuffer(),
+          );
           foto = "/uploads/" + filename;
         }
         if (!comercio.isPremium) {
-          const count = await prisma.producto.count({ where: { comercioId: comercio.id } });
-          if (count >= 10) return new Response(JSON.stringify({ error: "LIMIT_REACHED", message: "Alcanzaste el límite de 10 items en el plan gratuito." }), { status: 403, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+          const count = await prisma.producto.count({
+            where: { comercioId: comercio.id },
+          });
+          if (count >= 10)
+            return new Response(
+              JSON.stringify({
+                error: "LIMIT_REACHED",
+                message:
+                  "Alcanzaste el límite de 10 items en el plan gratuito.",
+              }),
+              {
+                status: 403,
+                headers: { ...corsHeaders, "Content-Type": "application/json" },
+              },
+            );
         }
-        const producto = await prisma.producto.create({ data: { comercioId: comercio.id, nombre, tipo, descripcion, precio, foto } });
-        return new Response(JSON.stringify(producto), { status: 201, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+        const producto = await prisma.producto.create({
+          data: {
+            comercioId: comercio.id,
+            nombre,
+            tipo,
+            descripcion,
+            precio,
+            foto,
+          },
+        });
+        return new Response(JSON.stringify(producto), {
+          status: 201,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
       }
 
       // PATCH /api/comercios/me/productos/:id — editar o toggle producto (requiere auth)
-      if (path.match(/^\/api\/comercios\/me\/productos\/[^/]+$/) && method === "PATCH") {
-        const clerkUserId = await verifyClerkToken(req);
-        if (!clerkUserId) return new Response(JSON.stringify({ error: "No autorizado" }), { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      if (
+        path.match(/^\/api\/comercios\/me\/productos\/[^/]+$/) &&
+        method === "PATCH"
+      ) {
+        const clerkUserId = await verifyClerkToken(req).catch(() => null);
+        if (!clerkUserId)
+          return new Response(JSON.stringify({ error: "No autorizado" }), {
+            status: 401,
+            headers: { ...corsHeaders, "Content-Type": "application/json" },
+          });
         const productoId = path.split("/api/comercios/me/productos/")[1];
-        const comercio = await prisma.comercio.findUnique({ where: { clerkUserId } });
-        if (!comercio) return new Response(JSON.stringify({ error: "No tenés un comercio registrado" }), { status: 404, headers: { ...corsHeaders, "Content-Type": "application/json" } });
-        const producto = await prisma.producto.findUnique({ where: { id: productoId } });
-        if (!producto || producto.comercioId !== comercio.id) return new Response(JSON.stringify({ error: "Producto no encontrado" }), { status: 404, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+        const comercio = await prisma.comercio.findUnique({
+          where: { clerkUserId },
+        });
+        if (!comercio)
+          return new Response(
+            JSON.stringify({ error: "No tenés un comercio registrado" }),
+            {
+              status: 404,
+              headers: { ...corsHeaders, "Content-Type": "application/json" },
+            },
+          );
+        const producto = await prisma.producto.findUnique({
+          where: { id: productoId },
+        });
+        if (!producto || producto.comercioId !== comercio.id)
+          return new Response(
+            JSON.stringify({ error: "Producto no encontrado" }),
+            {
+              status: 404,
+              headers: { ...corsHeaders, "Content-Type": "application/json" },
+            },
+          );
         const contentType = req.headers.get("content-type") ?? "";
         if (contentType.includes("application/json")) {
           const body = await req.json();
-          const updated = await prisma.producto.update({ where: { id: productoId }, data: { activo: typeof body.activo === "boolean" ? body.activo : undefined } });
-          return new Response(JSON.stringify(updated), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+          const updated = await prisma.producto.update({
+            where: { id: productoId },
+            data: {
+              activo:
+                typeof body.activo === "boolean" ? body.activo : undefined,
+            },
+          });
+          return new Response(JSON.stringify(updated), {
+            headers: { ...corsHeaders, "Content-Type": "application/json" },
+          });
         }
         const formData = await req.formData();
         const nombre = sanitizeText(formData.get("nombre") as string, 150);
-        if (!nombre) return new Response(JSON.stringify({ error: "El nombre es obligatorio" }), { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } });
-        const descripcion = sanitizeText(formData.get("descripcion") as string, 500) || null;
-        const precio = sanitizeText(formData.get("precio") as string, 50) || null;
+        if (!nombre)
+          return new Response(
+            JSON.stringify({ error: "El nombre es obligatorio" }),
+            {
+              status: 400,
+              headers: { ...corsHeaders, "Content-Type": "application/json" },
+            },
+          );
+        const descripcion =
+          sanitizeText(formData.get("descripcion") as string, 500) || null;
+        const precio =
+          sanitizeText(formData.get("precio") as string, 50) || null;
         const tipoRaw = formData.get("tipo") as string | null;
         const tipo = tipoRaw === "servicio" ? "servicio" : "producto";
         let fotoUrl: string | null | undefined;
@@ -2397,65 +3423,176 @@ https://reportesreconquista.com`;
         if (photoFile && photoFile.size > 0) {
           const ext = photoFile.name.split(".").pop()?.toLowerCase() || "jpg";
           const filename = `producto_${crypto.randomUUID()}.${ext}`;
-          await Bun.write(join(uploadsDir, filename), await photoFile.arrayBuffer());
+          await Bun.write(
+            join(uploadsDir, filename),
+            await photoFile.arrayBuffer(),
+          );
           fotoUrl = "/uploads/" + filename;
         } else if (clearPhoto === "1") {
           fotoUrl = null;
         }
-        const updated = await prisma.producto.update({ where: { id: productoId }, data: { nombre, tipo, descripcion, precio, ...(fotoUrl !== undefined ? { foto: fotoUrl } : {}) } });
-        return new Response(JSON.stringify(updated), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+        const updated = await prisma.producto.update({
+          where: { id: productoId },
+          data: {
+            nombre,
+            tipo,
+            descripcion,
+            precio,
+            ...(fotoUrl !== undefined ? { foto: fotoUrl } : {}),
+          },
+        });
+        return new Response(JSON.stringify(updated), {
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
       }
 
       // DELETE /api/comercios/me/productos/:id — eliminar producto (requiere auth)
-      if (path.match(/^\/api\/comercios\/me\/productos\/[^/]+$/) && method === "DELETE") {
-        const clerkUserId = await verifyClerkToken(req);
-        if (!clerkUserId) return new Response(JSON.stringify({ error: "No autorizado" }), { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      if (
+        path.match(/^\/api\/comercios\/me\/productos\/[^/]+$/) &&
+        method === "DELETE"
+      ) {
+        const clerkUserId = await verifyClerkToken(req).catch(() => null);
+        if (!clerkUserId)
+          return new Response(JSON.stringify({ error: "No autorizado" }), {
+            status: 401,
+            headers: { ...corsHeaders, "Content-Type": "application/json" },
+          });
         const productoId = path.split("/api/comercios/me/productos/")[1];
-        const comercio = await prisma.comercio.findUnique({ where: { clerkUserId } });
-        if (!comercio) return new Response(JSON.stringify({ error: "No tenés un comercio registrado" }), { status: 404, headers: { ...corsHeaders, "Content-Type": "application/json" } });
-        const producto = await prisma.producto.findUnique({ where: { id: productoId } });
-        if (!producto || producto.comercioId !== comercio.id) return new Response(JSON.stringify({ error: "Producto no encontrado" }), { status: 404, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+        const comercio = await prisma.comercio.findUnique({
+          where: { clerkUserId },
+        });
+        if (!comercio)
+          return new Response(
+            JSON.stringify({ error: "No tenés un comercio registrado" }),
+            {
+              status: 404,
+              headers: { ...corsHeaders, "Content-Type": "application/json" },
+            },
+          );
+        const producto = await prisma.producto.findUnique({
+          where: { id: productoId },
+        });
+        if (!producto || producto.comercioId !== comercio.id)
+          return new Response(
+            JSON.stringify({ error: "Producto no encontrado" }),
+            {
+              status: 404,
+              headers: { ...corsHeaders, "Content-Type": "application/json" },
+            },
+          );
         await prisma.producto.delete({ where: { id: productoId } });
-        return new Response(JSON.stringify({ ok: true }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+        return new Response(JSON.stringify({ ok: true }), {
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
       }
 
       // DELETE /api/comercios/me/fotos — eliminar foto de galería (requiere auth)
       if (path === "/api/comercios/me/fotos" && method === "DELETE") {
-        const clerkUserId = await verifyClerkToken(req);
-        if (!clerkUserId) return new Response(JSON.stringify({ error: "No autorizado" }), { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+        const clerkUserId = await verifyClerkToken(req).catch(() => null);
+        if (!clerkUserId)
+          return new Response(JSON.stringify({ error: "No autorizado" }), {
+            status: 401,
+            headers: { ...corsHeaders, "Content-Type": "application/json" },
+          });
         const body = await req.json();
         const { url: fotoUrl } = body;
-        if (!fotoUrl) return new Response(JSON.stringify({ error: "Falta el campo url" }), { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } });
-        const comercio = await prisma.comercio.findUnique({ where: { clerkUserId } });
-        if (!comercio) return new Response(JSON.stringify({ error: "No tenés un comercio registrado" }), { status: 404, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+        if (!fotoUrl)
+          return new Response(JSON.stringify({ error: "Falta el campo url" }), {
+            status: 400,
+            headers: { ...corsHeaders, "Content-Type": "application/json" },
+          });
+        const comercio = await prisma.comercio.findUnique({
+          where: { clerkUserId },
+        });
+        if (!comercio)
+          return new Response(
+            JSON.stringify({ error: "No tenés un comercio registrado" }),
+            {
+              status: 404,
+              headers: { ...corsHeaders, "Content-Type": "application/json" },
+            },
+          );
         const fotosActualizadas = comercio.fotos.filter((f) => f !== fotoUrl);
-        await prisma.comercio.update({ where: { clerkUserId }, data: { fotos: fotosActualizadas } });
-        return new Response(JSON.stringify({ ok: true }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+        await prisma.comercio.update({
+          where: { clerkUserId },
+          data: { fotos: fotosActualizadas },
+        });
+        return new Response(JSON.stringify({ ok: true }), {
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
       }
 
       // GET /api/comercios/:slug/offers/:offerId — detalle de oferta (público)
-      if (path.match(/^\/api\/comercios\/[^/]+\/offers\/[^/]+$/) && method === "GET") {
+      if (
+        path.match(/^\/api\/comercios\/[^/]+\/offers\/[^/]+$/) &&
+        method === "GET"
+      ) {
         const parts = path.split("/");
         const slug = parts[3];
         const offerId = parts[5];
-        const comercio = await prisma.comercio.findUnique({ where: { slug }, select: { id: true, nombre: true, slug: true, logo: true, whatsapp: true, rubro: true } });
-        if (!comercio) return new Response(JSON.stringify({ error: "Comercio no encontrado" }), { status: 404, headers: { ...corsHeaders, "Content-Type": "application/json" } });
-        const offer = await prisma.comercioOffer.findUnique({ where: { id: offerId } });
-        if (!offer || offer.comercioId !== comercio.id || !offer.activa) return new Response(JSON.stringify({ error: "Oferta no encontrada" }), { status: 404, headers: { ...corsHeaders, "Content-Type": "application/json" } });
-        return new Response(JSON.stringify({ ...offer, comercio }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+        const comercio = await prisma.comercio.findUnique({
+          where: { slug },
+          select: {
+            id: true,
+            nombre: true,
+            slug: true,
+            logo: true,
+            whatsapp: true,
+            rubro: true,
+          },
+        });
+        if (!comercio)
+          return new Response(
+            JSON.stringify({ error: "Comercio no encontrado" }),
+            {
+              status: 404,
+              headers: { ...corsHeaders, "Content-Type": "application/json" },
+            },
+          );
+        const offer = await prisma.comercioOffer.findUnique({
+          where: { id: offerId },
+        });
+        if (!offer || offer.comercioId !== comercio.id || !offer.activa)
+          return new Response(
+            JSON.stringify({ error: "Oferta no encontrada" }),
+            {
+              status: 404,
+              headers: { ...corsHeaders, "Content-Type": "application/json" },
+            },
+          );
+        return new Response(JSON.stringify({ ...offer, comercio }), {
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
       }
 
       // GET /api/comercios/:slug/offers — listar ofertas activas de un comercio (público)
       if (path.match(/^\/api\/comercios\/[^/]+\/offers$/) && method === "GET") {
         const slug = path.split("/api/comercios/")[1].replace("/offers", "");
         const comercio = await prisma.comercio.findUnique({ where: { slug } });
-        if (!comercio) return new Response(JSON.stringify({ error: "Comercio no encontrado" }), { status: 404, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+        if (!comercio)
+          return new Response(
+            JSON.stringify({ error: "Comercio no encontrado" }),
+            {
+              status: 404,
+              headers: { ...corsHeaders, "Content-Type": "application/json" },
+            },
+          );
         const offers = await prisma.comercioOffer.findMany({
           where: { comercioId: comercio.id, activa: true },
-          select: { id: true, titulo: true, descripcion: true, precio: true, foto: true, validaHasta: true, createdAt: true },
+          select: {
+            id: true,
+            titulo: true,
+            descripcion: true,
+            precio: true,
+            foto: true,
+            validaHasta: true,
+            createdAt: true,
+          },
           orderBy: { createdAt: "desc" },
         });
-        return new Response(JSON.stringify(offers), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+        return new Response(JSON.stringify(offers), {
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
       }
 
       // GET /api/comercios/:slug — perfil público de un comercio
@@ -2463,13 +3600,63 @@ https://reportesreconquista.com`;
         const slug = path.split("/api/comercios/")[1];
         const comercio = await prisma.comercio.findUnique({
           where: { slug },
-          select: { id: true, nombre: true, rubro: true, slug: true, barrio: true, descripcion: true, direccion: true, horario: true, whatsapp: true, telefono: true, foto: true, logo: true, fotos: true, activo: true, isPremium: true, isFounder: true, createdAt: true,
-            offers: { where: { activa: true }, select: { id: true, titulo: true, descripcion: true, precio: true, foto: true, validaHasta: true, createdAt: true }, orderBy: { createdAt: "desc" } },
-            productos: { where: { activo: true }, select: { id: true, nombre: true, tipo: true, descripcion: true, precio: true, foto: true, createdAt: true }, orderBy: { createdAt: "desc" } },
+          select: {
+            id: true,
+            nombre: true,
+            rubro: true,
+            slug: true,
+            barrio: true,
+            descripcion: true,
+            direccion: true,
+            horario: true,
+            whatsapp: true,
+            telefono: true,
+            foto: true,
+            logo: true,
+            fotos: true,
+            activo: true,
+            isPremium: true,
+            isFounder: true,
+            createdAt: true,
+            offers: {
+              where: { activa: true },
+              select: {
+                id: true,
+                titulo: true,
+                descripcion: true,
+                precio: true,
+                foto: true,
+                validaHasta: true,
+                createdAt: true,
+              },
+              orderBy: { createdAt: "desc" },
+            },
+            productos: {
+              where: { activo: true },
+              select: {
+                id: true,
+                nombre: true,
+                tipo: true,
+                descripcion: true,
+                precio: true,
+                foto: true,
+                createdAt: true,
+              },
+              orderBy: { createdAt: "desc" },
+            },
           },
         });
-        if (!comercio) return new Response(JSON.stringify({ error: "Comercio no encontrado" }), { status: 404, headers: { ...corsHeaders, "Content-Type": "application/json" } });
-        return new Response(JSON.stringify(comercio), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+        if (!comercio)
+          return new Response(
+            JSON.stringify({ error: "Comercio no encontrado" }),
+            {
+              status: 404,
+              headers: { ...corsHeaders, "Content-Type": "application/json" },
+            },
+          );
+        return new Response(JSON.stringify(comercio), {
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
       }
 
       // ─── EMPLEADOS ────────────────────────────────────────────────────────────
@@ -2477,41 +3664,100 @@ https://reportesreconquista.com`;
       // POST /api/empleados — crear perfil CV (requiere auth)
       if (path === "/api/empleados" && method === "POST") {
         if (!checkStrictRateLimit(req)) {
-          return new Response(JSON.stringify({ error: "Demasiadas solicitudes. Intentá en un momento." }), { status: 429, headers: { ...corsHeaders, "Content-Type": "application/json", "Retry-After": "60" } });
+          return new Response(
+            JSON.stringify({
+              error: "Demasiadas solicitudes. Intentá en un momento.",
+            }),
+            {
+              status: 429,
+              headers: {
+                ...corsHeaders,
+                "Content-Type": "application/json",
+                "Retry-After": "60",
+              },
+            },
+          );
         }
-        const clerkUserId = await verifyClerkToken(req);
-        if (!clerkUserId) return new Response(JSON.stringify({ error: "No autorizado" }), { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } });
-        const existing = await prisma.empleado.findUnique({ where: { clerkUserId } });
-        if (existing) return new Response(JSON.stringify({ error: "Ya tenés un perfil de empleado creado" }), { status: 409, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+        const clerkUserId = await verifyClerkToken(req).catch(() => null);
+        if (!clerkUserId)
+          return new Response(JSON.stringify({ error: "No autorizado" }), {
+            status: 401,
+            headers: { ...corsHeaders, "Content-Type": "application/json" },
+          });
+        const existing = await prisma.empleado.findUnique({
+          where: { clerkUserId },
+        });
+        if (existing)
+          return new Response(
+            JSON.stringify({ error: "Ya tenés un perfil de empleado creado" }),
+            {
+              status: 409,
+              headers: { ...corsHeaders, "Content-Type": "application/json" },
+            },
+          );
         const formData = await req.formData();
         const nombre = sanitizeText(formData.get("nombre") as string, 100);
         const apellido = sanitizeText(formData.get("apellido") as string, 100);
-        const descripcion = sanitizeText(formData.get("descripcion") as string, 500) || undefined;
-        const barrio = sanitizeText(formData.get("barrio") as string, 100) || undefined;
-        const whatsapp = sanitizeText(formData.get("whatsapp") as string, 30) || undefined;
+        const descripcion =
+          sanitizeText(formData.get("descripcion") as string, 500) || undefined;
+        const barrio =
+          sanitizeText(formData.get("barrio") as string, 100) || undefined;
+        const whatsapp =
+          sanitizeText(formData.get("whatsapp") as string, 30) || undefined;
         const habilidadesRaw = formData.get("habilidades") as string | null;
-        const habilidades = habilidadesRaw ? habilidadesRaw.split(",").map(h => h.trim()).filter(Boolean) : [];
+        const habilidades = habilidadesRaw
+          ? habilidadesRaw
+              .split(",")
+              .map((h) => h.trim())
+              .filter(Boolean)
+          : [];
         if (!nombre || !apellido || habilidades.length === 0) {
-          return new Response(JSON.stringify({ error: "Faltan campos obligatorios: nombre, apellido, habilidades" }), { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+          return new Response(
+            JSON.stringify({
+              error:
+                "Faltan campos obligatorios: nombre, apellido, habilidades",
+            }),
+            {
+              status: 400,
+              headers: { ...corsHeaders, "Content-Type": "application/json" },
+            },
+          );
         }
-        const slugBase = `${nombre}-${apellido}-${Math.random().toString(36).slice(2, 7)}`
-          .toLowerCase()
-          .normalize("NFD")
-          .replace(/[\u0300-\u036f]/g, "")
-          .replace(/[^a-z0-9]+/g, "-")
-          .replace(/^-|-$/g, "");
+        const slugBase =
+          `${nombre}-${apellido}-${Math.random().toString(36).slice(2, 7)}`
+            .toLowerCase()
+            .normalize("NFD")
+            .replace(/[\u0300-\u036f]/g, "")
+            .replace(/[^a-z0-9]+/g, "-")
+            .replace(/^-|-$/g, "");
         let fotoUrl: string | undefined;
         const photoFile = formData.get("photo") as File | null;
         if (photoFile && photoFile.size > 0) {
           const ext = photoFile.name.split(".").pop()?.toLowerCase() || "jpg";
           const filename = `empleado_${crypto.randomUUID()}.${ext}`;
-          await Bun.write(join(uploadsDir, filename), await photoFile.arrayBuffer());
+          await Bun.write(
+            join(uploadsDir, filename),
+            await photoFile.arrayBuffer(),
+          );
           fotoUrl = "/uploads/" + filename;
         }
         const empleado = await prisma.empleado.create({
-          data: { clerkUserId, nombre, apellido, slug: slugBase, habilidades, descripcion, barrio, whatsapp, foto: fotoUrl },
+          data: {
+            clerkUserId,
+            nombre,
+            apellido,
+            slug: slugBase,
+            habilidades,
+            descripcion,
+            barrio,
+            whatsapp,
+            foto: fotoUrl,
+          },
         });
-        return new Response(JSON.stringify(empleado), { status: 201, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+        return new Response(JSON.stringify(empleado), {
+          status: 201,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
       }
 
       // GET /api/empleados — listar empleados activos (público)
@@ -2521,33 +3767,89 @@ https://reportesreconquista.com`;
         const empleados = await prisma.empleado.findMany({
           where: {
             activo: true,
-            ...(barrio ? { barrio: { contains: barrio, mode: "insensitive" } } : {}),
+            ...(barrio
+              ? { barrio: { contains: barrio, mode: "insensitive" } }
+              : {}),
             ...(habilidad ? { habilidades: { has: habilidad } } : {}),
           },
-          select: { id: true, nombre: true, apellido: true, slug: true, habilidades: true, barrio: true, foto: true, descripcion: true, disponible: true, activo: true, createdAt: true },
+          select: {
+            id: true,
+            nombre: true,
+            apellido: true,
+            slug: true,
+            habilidades: true,
+            barrio: true,
+            foto: true,
+            descripcion: true,
+            disponible: true,
+            activo: true,
+            createdAt: true,
+          },
           orderBy: { createdAt: "desc" },
         });
-        return new Response(JSON.stringify(empleados), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+        return new Response(JSON.stringify(empleados), {
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
       }
 
       // GET /api/empleados/me — perfil propio (requiere auth)
       if (path === "/api/empleados/me" && method === "GET") {
-        const clerkUserId = await verifyClerkToken(req);
-        if (!clerkUserId) return new Response(JSON.stringify({ error: "No autorizado" }), { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+        const clerkUserId = await verifyClerkToken(req).catch(() => null);
+        if (!clerkUserId)
+          return new Response(JSON.stringify({ error: "No autorizado" }), {
+            status: 401,
+            headers: { ...corsHeaders, "Content-Type": "application/json" },
+          });
         const empleado = await prisma.empleado.findUnique({
           where: { clerkUserId },
-          select: { id: true, nombre: true, apellido: true, slug: true, habilidades: true, descripcion: true, barrio: true, whatsapp: true, foto: true, disponible: true, activo: true, createdAt: true, updatedAt: true },
+          select: {
+            id: true,
+            nombre: true,
+            apellido: true,
+            slug: true,
+            habilidades: true,
+            descripcion: true,
+            barrio: true,
+            whatsapp: true,
+            foto: true,
+            disponible: true,
+            activo: true,
+            createdAt: true,
+            updatedAt: true,
+          },
         });
-        if (!empleado) return new Response(JSON.stringify({ error: "No tenés un perfil de empleado" }), { status: 404, headers: { ...corsHeaders, "Content-Type": "application/json" } });
-        return new Response(JSON.stringify(empleado), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+        if (!empleado)
+          return new Response(
+            JSON.stringify({ error: "No tenés un perfil de empleado" }),
+            {
+              status: 404,
+              headers: { ...corsHeaders, "Content-Type": "application/json" },
+            },
+          );
+        return new Response(JSON.stringify(empleado), {
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
       }
 
       // PUT /api/empleados/me — actualizar perfil propio (requiere auth)
       if (path === "/api/empleados/me" && method === "PUT") {
-        const clerkUserId = await verifyClerkToken(req);
-        if (!clerkUserId) return new Response(JSON.stringify({ error: "No autorizado" }), { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } });
-        const empleadoExistente = await prisma.empleado.findUnique({ where: { clerkUserId } });
-        if (!empleadoExistente) return new Response(JSON.stringify({ error: "No tenés un perfil de empleado" }), { status: 404, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+        const clerkUserId = await verifyClerkToken(req).catch(() => null);
+        if (!clerkUserId)
+          return new Response(JSON.stringify({ error: "No autorizado" }), {
+            status: 401,
+            headers: { ...corsHeaders, "Content-Type": "application/json" },
+          });
+        const empleadoExistente = await prisma.empleado.findUnique({
+          where: { clerkUserId },
+        });
+        if (!empleadoExistente)
+          return new Response(
+            JSON.stringify({ error: "No tenés un perfil de empleado" }),
+            {
+              status: 404,
+              headers: { ...corsHeaders, "Content-Type": "application/json" },
+            },
+          );
         const formData = await req.formData();
         const updateData: Record<string, unknown> = {};
         const nombre = formData.get("nombre") as string | null;
@@ -2559,46 +3861,107 @@ https://reportesreconquista.com`;
         const disponibleRaw = formData.get("disponible") as string | null;
         if (nombre) updateData.nombre = sanitizeText(nombre, 100);
         if (apellido) updateData.apellido = sanitizeText(apellido, 100);
-        if (descripcion !== null) updateData.descripcion = sanitizeText(descripcion, 500) || null;
-        if (barrio !== null) updateData.barrio = sanitizeText(barrio, 100) || null;
-        if (whatsapp !== null) updateData.whatsapp = sanitizeText(whatsapp, 30) || null;
-        if (habilidadesRaw !== null) updateData.habilidades = habilidadesRaw.split(",").map(h => h.trim()).filter(Boolean);
-        if (disponibleRaw !== null) updateData.disponible = disponibleRaw === "true";
+        if (descripcion !== null)
+          updateData.descripcion = sanitizeText(descripcion, 500) || null;
+        if (barrio !== null)
+          updateData.barrio = sanitizeText(barrio, 100) || null;
+        if (whatsapp !== null)
+          updateData.whatsapp = sanitizeText(whatsapp, 30) || null;
+        if (habilidadesRaw !== null)
+          updateData.habilidades = habilidadesRaw
+            .split(",")
+            .map((h) => h.trim())
+            .filter(Boolean);
+        if (disponibleRaw !== null)
+          updateData.disponible = disponibleRaw === "true";
         const mainPhoto = formData.get("photo") as File | null;
         if (mainPhoto && mainPhoto.size > 0) {
           const ext = mainPhoto.name.split(".").pop()?.toLowerCase() || "jpg";
           const filename = `empleado_${crypto.randomUUID()}.${ext}`;
-          await Bun.write(join(uploadsDir, filename), await mainPhoto.arrayBuffer());
+          await Bun.write(
+            join(uploadsDir, filename),
+            await mainPhoto.arrayBuffer(),
+          );
           updateData.foto = "/uploads/" + filename;
         }
-        const empleado = await prisma.empleado.update({ where: { clerkUserId }, data: updateData });
-        return new Response(JSON.stringify(empleado), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+        const empleado = await prisma.empleado.update({
+          where: { clerkUserId },
+          data: updateData,
+        });
+        return new Response(JSON.stringify(empleado), {
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
       }
 
       // GET /api/empleados/:slug — perfil público de un empleado
       if (path.match(/^\/api\/empleados\/[^/]+$/) && method === "GET") {
         const slug = path.split("/api/empleados/")[1];
         if (slug === "me") {
-          return new Response(JSON.stringify({ error: "No autorizado" }), { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+          return new Response(JSON.stringify({ error: "No autorizado" }), {
+            status: 401,
+            headers: { ...corsHeaders, "Content-Type": "application/json" },
+          });
         }
         const empleado = await prisma.empleado.findUnique({
           where: { slug },
-          select: { id: true, nombre: true, apellido: true, slug: true, habilidades: true, descripcion: true, barrio: true, whatsapp: true, foto: true, disponible: true, activo: true, createdAt: true },
+          select: {
+            id: true,
+            nombre: true,
+            apellido: true,
+            slug: true,
+            habilidades: true,
+            descripcion: true,
+            barrio: true,
+            whatsapp: true,
+            foto: true,
+            disponible: true,
+            activo: true,
+            createdAt: true,
+          },
         });
-        if (!empleado || !empleado.activo) return new Response(JSON.stringify({ error: "Empleado no encontrado" }), { status: 404, headers: { ...corsHeaders, "Content-Type": "application/json" } });
-        return new Response(JSON.stringify(empleado), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+        if (!empleado || !empleado.activo)
+          return new Response(
+            JSON.stringify({ error: "Empleado no encontrado" }),
+            {
+              status: 404,
+              headers: { ...corsHeaders, "Content-Type": "application/json" },
+            },
+          );
+        return new Response(JSON.stringify(empleado), {
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
       }
 
       // POST /api/empleados/:slug/conversaciones — iniciar chat con empleado
-      if (path.match(/^\/api\/empleados\/[^/]+\/conversaciones$/) && method === "POST") {
-        const slug = path.split("/api/empleados/")[1].replace("/conversaciones", "");
+      if (
+        path.match(/^\/api\/empleados\/[^/]+\/conversaciones$/) &&
+        method === "POST"
+      ) {
+        const slug = path
+          .split("/api/empleados/")[1]
+          .replace("/conversaciones", "");
         const empleado = await prisma.empleado.findUnique({ where: { slug } });
-        if (!empleado || !empleado.activo) return new Response(JSON.stringify({ error: "Empleado no encontrado" }), { status: 404, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+        if (!empleado || !empleado.activo)
+          return new Response(
+            JSON.stringify({ error: "Empleado no encontrado" }),
+            {
+              status: 404,
+              headers: { ...corsHeaders, "Content-Type": "application/json" },
+            },
+          );
         const body = await req.json();
         const clientToken = sanitizeText(body.clientToken as string, 100);
-        const clientName = sanitizeText(body.clientName as string, 100) || undefined;
+        const clientName =
+          sanitizeText(body.clientName as string, 100) || undefined;
         const mensaje = sanitizeText(body.mensaje as string, 1000);
-        if (!clientToken || !mensaje) return new Response(JSON.stringify({ error: "Faltan campos: clientToken, mensaje" }), { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+        if (!clientToken || !mensaje)
+          return new Response(
+            JSON.stringify({ error: "Faltan campos: clientToken, mensaje" }),
+            {
+              status: 400,
+              headers: { ...corsHeaders, "Content-Type": "application/json" },
+            },
+          );
         const convo = await prisma.empleadoConversation.create({
           data: {
             empleadoId: empleado.id,
@@ -2609,108 +3972,232 @@ https://reportesreconquista.com`;
           },
           include: { Message: true },
         });
-        return new Response(JSON.stringify(convo), { status: 201, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+        return new Response(JSON.stringify(convo), {
+          status: 201,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
       }
 
       // GET /api/empleados/me/conversaciones — conversaciones del empleado (requiere auth)
       if (path === "/api/empleados/me/conversaciones" && method === "GET") {
-        const clerkUserId = await verifyClerkToken(req);
-        if (!clerkUserId) return new Response(JSON.stringify({ error: "No autorizado" }), { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } });
-        const empleado = await prisma.empleado.findUnique({ where: { clerkUserId } });
-        if (!empleado) return new Response(JSON.stringify({ error: "No tenés un perfil de empleado" }), { status: 404, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+        const clerkUserId = await verifyClerkToken(req).catch(() => null);
+        if (!clerkUserId)
+          return new Response(JSON.stringify({ error: "No autorizado" }), {
+            status: 401,
+            headers: { ...corsHeaders, "Content-Type": "application/json" },
+          });
+        const empleado = await prisma.empleado.findUnique({
+          where: { clerkUserId },
+        });
+        if (!empleado)
+          return new Response(
+            JSON.stringify({ error: "No tenés un perfil de empleado" }),
+            {
+              status: 404,
+              headers: { ...corsHeaders, "Content-Type": "application/json" },
+            },
+          );
         const convos = await prisma.empleadoConversation.findMany({
           where: { empleadoId: empleado.id },
           include: { Message: { orderBy: { createdAt: "desc" }, take: 1 } },
           orderBy: { updatedAt: "desc" },
         });
-        return new Response(JSON.stringify(convos), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+        return new Response(JSON.stringify(convos), {
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
       }
 
       // GET /api/empleados/conversaciones/:id — ver conversación (por token de cliente o auth de empleado)
-      if (path.match(/^\/api\/empleados\/conversaciones\/[^/]+$/) && method === "GET") {
+      if (
+        path.match(/^\/api\/empleados\/conversaciones\/[^/]+$/) &&
+        method === "GET"
+      ) {
         const convId = path.split("/api/empleados/conversaciones/")[1];
         const clientToken = url.searchParams.get("clientToken");
-        const clerkUserId = clientToken ? null : await verifyClerkToken(req).catch(() => null);
+        const clerkUserId = clientToken
+          ? null
+          : await verifyClerkToken(req).catch(() => null);
         const convo = await prisma.empleadoConversation.findUnique({
           where: { id: convId },
-          include: { Message: { orderBy: { createdAt: "asc" } }, empleado: { select: { slug: true, nombre: true, apellido: true, foto: true, whatsapp: true, clerkUserId: true } } },
+          include: {
+            Message: { orderBy: { createdAt: "asc" } },
+            empleado: {
+              select: {
+                slug: true,
+                nombre: true,
+                apellido: true,
+                foto: true,
+                whatsapp: true,
+                clerkUserId: true,
+              },
+            },
+          },
         });
-        if (!convo) return new Response(JSON.stringify({ error: "Conversación no encontrada" }), { status: 404, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+        if (!convo)
+          return new Response(
+            JSON.stringify({ error: "Conversación no encontrada" }),
+            {
+              status: 404,
+              headers: { ...corsHeaders, "Content-Type": "application/json" },
+            },
+          );
         const isClient = clientToken && convo.clientToken === clientToken;
-        const isEmpleado = clerkUserId && convo.empleado.clerkUserId === clerkUserId;
-        if (!isClient && !isEmpleado) return new Response(JSON.stringify({ error: "No autorizado" }), { status: 403, headers: { ...corsHeaders, "Content-Type": "application/json" } });
-        return new Response(JSON.stringify(convo), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+        const isEmpleado =
+          clerkUserId && convo.empleado.clerkUserId === clerkUserId;
+        if (!isClient && !isEmpleado)
+          return new Response(JSON.stringify({ error: "No autorizado" }), {
+            status: 403,
+            headers: { ...corsHeaders, "Content-Type": "application/json" },
+          });
+        return new Response(JSON.stringify(convo), {
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
       }
 
       // POST /api/empleados/conversaciones/:id/mensajes — enviar mensaje en conversación
-      if (path.match(/^\/api\/empleados\/conversaciones\/[^/]+\/mensajes$/) && method === "POST") {
-        const convId = path.split("/api/empleados/conversaciones/")[1].replace("/mensajes", "");
+      if (
+        path.match(/^\/api\/empleados\/conversaciones\/[^/]+\/mensajes$/) &&
+        method === "POST"
+      ) {
+        const convId = path
+          .split("/api/empleados/conversaciones/")[1]
+          .replace("/mensajes", "");
         const body = await req.json();
         const clientToken = body.clientToken as string | undefined;
-        const clerkUserId = clientToken ? null : await verifyClerkToken(req).catch(() => null);
+        const clerkUserId = clientToken
+          ? null
+          : await verifyClerkToken(req).catch(() => null);
         const convo = await prisma.empleadoConversation.findUnique({
           where: { id: convId },
           include: { empleado: { select: { clerkUserId: true } } },
         });
-        if (!convo) return new Response(JSON.stringify({ error: "Conversación no encontrada" }), { status: 404, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+        if (!convo)
+          return new Response(
+            JSON.stringify({ error: "Conversación no encontrada" }),
+            {
+              status: 404,
+              headers: { ...corsHeaders, "Content-Type": "application/json" },
+            },
+          );
         const isClient = clientToken && convo.clientToken === clientToken;
-        const isEmpleado = clerkUserId && convo.empleado.clerkUserId === clerkUserId;
-        if (!isClient && !isEmpleado) return new Response(JSON.stringify({ error: "No autorizado" }), { status: 403, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+        const isEmpleado =
+          clerkUserId && convo.empleado.clerkUserId === clerkUserId;
+        if (!isClient && !isEmpleado)
+          return new Response(JSON.stringify({ error: "No autorizado" }), {
+            status: 403,
+            headers: { ...corsHeaders, "Content-Type": "application/json" },
+          });
         const content = sanitizeText(body.content as string, 1000);
-        if (!content) return new Response(JSON.stringify({ error: "Falta el contenido del mensaje" }), { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+        if (!content)
+          return new Response(
+            JSON.stringify({ error: "Falta el contenido del mensaje" }),
+            {
+              status: 400,
+              headers: { ...corsHeaders, "Content-Type": "application/json" },
+            },
+          );
         const senderType = isEmpleado ? "professional" : "client";
         const msg = await prisma.empleadoMessage.create({
           data: { conversationId: convId, senderType, content },
         });
-        await prisma.empleadoConversation.update({ where: { id: convId }, data: { updatedAt: new Date() } });
+        await prisma.empleadoConversation.update({
+          where: { id: convId },
+          data: { updatedAt: new Date() },
+        });
 
-        const preview = content.length > 60 ? content.slice(0, 60) + "…" : content;
+        const preview =
+          content.length > 60 ? content.slice(0, 60) + "…" : content;
 
         // Push al empleado cuando el cliente manda un mensaje
         if (senderType === "client" && convo.empleado.clerkUserId) {
           try {
-            const subs = await prisma.pushSubscription.findMany({ where: { clerkUserId: convo.empleado.clerkUserId } });
-            console.log(`[push/empleado-msg] sending to ${subs.length} subs for ${convo.empleado.clerkUserId}`);
-            await Promise.allSettled(subs.map(async (sub) => {
-              try {
-                await webPush.sendNotification(
-                  { endpoint: sub.endpoint, keys: { p256dh: sub.p256dh, auth: sub.auth } },
-                  JSON.stringify({ title: "Nuevo mensaje", body: preview, url: `/chat/empleado/${convId}`, icon: "/icon-192x192.png", tag: `empleado-${convId}` }),
-                  PUSH_OPTIONS,
-                );
-              } catch (err: any) {
-                console.error(`[push/empleado-msg] ERROR ${err.statusCode}`, err.body ?? err.message);
-                if (err.statusCode === 410 || err.statusCode === 404) {
-                  await prisma.pushSubscription.delete({ where: { endpoint: sub.endpoint } }).catch(() => {});
+            const subs = await prisma.pushSubscription.findMany({
+              where: { clerkUserId: convo.empleado.clerkUserId },
+            });
+            console.log(
+              `[push/empleado-msg] sending to ${subs.length} subs for ${convo.empleado.clerkUserId}`,
+            );
+            await Promise.allSettled(
+              subs.map(async (sub) => {
+                try {
+                  await webPush.sendNotification(
+                    {
+                      endpoint: sub.endpoint,
+                      keys: { p256dh: sub.p256dh, auth: sub.auth },
+                    },
+                    JSON.stringify({
+                      title: "Nuevo mensaje",
+                      body: preview,
+                      url: `/chat/empleado/${convId}`,
+                      icon: "/icon-192x192.png",
+                      tag: `empleado-${convId}`,
+                    }),
+                    PUSH_OPTIONS,
+                  );
+                } catch (err: any) {
+                  console.error(
+                    `[push/empleado-msg] ERROR ${err.statusCode}`,
+                    err.body ?? err.message,
+                  );
+                  if (err.statusCode === 410 || err.statusCode === 404) {
+                    await prisma.pushSubscription
+                      .delete({ where: { endpoint: sub.endpoint } })
+                      .catch(() => {});
+                  }
                 }
-              }
-            }));
-          } catch (e) { console.error("[push/empleado-msg] unexpected:", e); }
+              }),
+            );
+          } catch (e) {
+            console.error("[push/empleado-msg] unexpected:", e);
+          }
         }
 
         // Push al cliente cuando el empleado responde
         if (senderType === "professional" && convo.clientToken) {
           try {
             const subs = await prisma.pushSubscription.findMany({
-              where: { OR: [{ clientToken: convo.clientToken }, { clerkUserId: convo.clientToken }] },
+              where: {
+                OR: [
+                  { clientToken: convo.clientToken },
+                  { clerkUserId: convo.clientToken },
+                ],
+              },
             });
-            await Promise.allSettled(subs.map(async (sub) => {
-              try {
-                await webPush.sendNotification(
-                  { endpoint: sub.endpoint, keys: { p256dh: sub.p256dh, auth: sub.auth } },
-                  JSON.stringify({ title: "Te respondieron", body: preview, url: `/chat/empleado/${convId}`, icon: "/icon-192x192.png", tag: `empleado-${convId}` }),
-                  PUSH_OPTIONS,
-                );
-              } catch (err: any) {
-                if (err.statusCode === 410 || err.statusCode === 404) {
-                  await prisma.pushSubscription.delete({ where: { endpoint: sub.endpoint } }).catch(() => {});
+            await Promise.allSettled(
+              subs.map(async (sub) => {
+                try {
+                  await webPush.sendNotification(
+                    {
+                      endpoint: sub.endpoint,
+                      keys: { p256dh: sub.p256dh, auth: sub.auth },
+                    },
+                    JSON.stringify({
+                      title: "Te respondieron",
+                      body: preview,
+                      url: `/chat/empleado/${convId}`,
+                      icon: "/icon-192x192.png",
+                      tag: `empleado-${convId}`,
+                    }),
+                    PUSH_OPTIONS,
+                  );
+                } catch (err: any) {
+                  if (err.statusCode === 410 || err.statusCode === 404) {
+                    await prisma.pushSubscription
+                      .delete({ where: { endpoint: sub.endpoint } })
+                      .catch(() => {});
+                  }
                 }
-              }
-            }));
-          } catch (e) { console.error("[push/empleado-client-reply] unexpected:", e); }
+              }),
+            );
+          } catch (e) {
+            console.error("[push/empleado-client-reply] unexpected:", e);
+          }
         }
 
-        return new Response(JSON.stringify(msg), { status: 201, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+        return new Response(JSON.stringify(msg), {
+          status: 201,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
       }
 
       // ─── FIN EMPLEADOS ────────────────────────────────────────────────────────
@@ -2720,26 +4207,82 @@ https://reportesreconquista.com`;
       // POST /api/vacantes — crear vacante (requiere auth + tener comercio)
       if (path === "/api/vacantes" && method === "POST") {
         if (!checkStrictRateLimit(req)) {
-          return new Response(JSON.stringify({ error: "Demasiadas solicitudes. Intentá en un momento." }), { status: 429, headers: { ...corsHeaders, "Content-Type": "application/json", "Retry-After": "60" } });
+          return new Response(
+            JSON.stringify({
+              error: "Demasiadas solicitudes. Intentá en un momento.",
+            }),
+            {
+              status: 429,
+              headers: {
+                ...corsHeaders,
+                "Content-Type": "application/json",
+                "Retry-After": "60",
+              },
+            },
+          );
         }
-        const clerkUserId = await verifyClerkToken(req);
-        if (!clerkUserId) return new Response(JSON.stringify({ error: "No autorizado" }), { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } });
-        const comercio = await prisma.comercio.findUnique({ where: { clerkUserId } });
-        if (!comercio) return new Response(JSON.stringify({ error: "Necesitás tener un perfil de comercio para publicar vacantes" }), { status: 403, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+        const clerkUserId = await verifyClerkToken(req).catch(() => null);
+        if (!clerkUserId)
+          return new Response(JSON.stringify({ error: "No autorizado" }), {
+            status: 401,
+            headers: { ...corsHeaders, "Content-Type": "application/json" },
+          });
+        const comercio = await prisma.comercio.findUnique({
+          where: { clerkUserId },
+        });
+        if (!comercio)
+          return new Response(
+            JSON.stringify({
+              error:
+                "Necesitás tener un perfil de comercio para publicar vacantes",
+            }),
+            {
+              status: 403,
+              headers: { ...corsHeaders, "Content-Type": "application/json" },
+            },
+          );
         const body = await req.json();
         const titulo = sanitizeText(body.titulo as string, 150);
         const descripcion = sanitizeText(body.descripcion as string, 1000);
-        if (!titulo || !descripcion) return new Response(JSON.stringify({ error: "Faltan campos: titulo, descripcion" }), { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } });
-        const habilidades = Array.isArray(body.habilidades) ? body.habilidades.map((h: string) => sanitizeText(h, 60)).filter(Boolean) : [];
+        if (!titulo || !descripcion)
+          return new Response(
+            JSON.stringify({ error: "Faltan campos: titulo, descripcion" }),
+            {
+              status: 400,
+              headers: { ...corsHeaders, "Content-Type": "application/json" },
+            },
+          );
+        const habilidades = Array.isArray(body.habilidades)
+          ? body.habilidades
+              .map((h: string) => sanitizeText(h, 60))
+              .filter(Boolean)
+          : [];
         const barrio = sanitizeText(body.barrio as string, 100) || undefined;
         const horario = sanitizeText(body.horario as string, 150) || undefined;
         const salario = sanitizeText(body.salario as string, 80) || undefined;
-        const modalidad = sanitizeText(body.modalidad as string, 60) || undefined;
+        const modalidad =
+          sanitizeText(body.modalidad as string, 60) || undefined;
         const vacante = await prisma.vacante.create({
-          data: { comercioId: comercio.id, titulo, descripcion, habilidades, barrio, horario, salario, modalidad },
-          include: { comercio: { select: { nombre: true, slug: true, foto: true, rubro: true } } },
+          data: {
+            comercioId: comercio.id,
+            titulo,
+            descripcion,
+            habilidades,
+            barrio,
+            horario,
+            salario,
+            modalidad,
+          },
+          include: {
+            comercio: {
+              select: { nombre: true, slug: true, foto: true, rubro: true },
+            },
+          },
         });
-        return new Response(JSON.stringify(vacante), { status: 201, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+        return new Response(JSON.stringify(vacante), {
+          status: 201,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
       }
 
       // GET /api/vacantes — listar vacantes activas (público)
@@ -2749,88 +4292,210 @@ https://reportesreconquista.com`;
         const vacantes = await prisma.vacante.findMany({
           where: {
             activa: true,
-            ...(barrio ? { barrio: { contains: barrio, mode: "insensitive" } } : {}),
+            ...(barrio
+              ? { barrio: { contains: barrio, mode: "insensitive" } }
+              : {}),
             ...(habilidad ? { habilidades: { has: habilidad } } : {}),
           },
-          include: { comercio: { select: { nombre: true, slug: true, foto: true, rubro: true } } },
+          include: {
+            comercio: {
+              select: { nombre: true, slug: true, foto: true, rubro: true },
+            },
+          },
           orderBy: { createdAt: "desc" },
         });
-        return new Response(JSON.stringify(vacantes), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+        return new Response(JSON.stringify(vacantes), {
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
       }
 
       // GET /api/vacantes/mis — mis vacantes (requiere auth + comercio)
       if (path === "/api/vacantes/mis" && method === "GET") {
-        const clerkUserId = await verifyClerkToken(req);
-        if (!clerkUserId) return new Response(JSON.stringify({ error: "No autorizado" }), { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } });
-        const comercio = await prisma.comercio.findUnique({ where: { clerkUserId } });
-        if (!comercio) return new Response(JSON.stringify({ error: "No tenés un comercio registrado" }), { status: 404, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+        const clerkUserId = await verifyClerkToken(req).catch(() => null);
+        if (!clerkUserId)
+          return new Response(JSON.stringify({ error: "No autorizado" }), {
+            status: 401,
+            headers: { ...corsHeaders, "Content-Type": "application/json" },
+          });
+        const comercio = await prisma.comercio.findUnique({
+          where: { clerkUserId },
+        });
+        if (!comercio)
+          return new Response(
+            JSON.stringify({ error: "No tenés un comercio registrado" }),
+            {
+              status: 404,
+              headers: { ...corsHeaders, "Content-Type": "application/json" },
+            },
+          );
         const vacantes = await prisma.vacante.findMany({
           where: { comercioId: comercio.id },
           orderBy: { createdAt: "desc" },
         });
-        return new Response(JSON.stringify(vacantes), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+        return new Response(JSON.stringify(vacantes), {
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
       }
 
       // GET /api/vacantes/:id — detalle de vacante (público)
       if (path.match(/^\/api\/vacantes\/[^/]+$/) && method === "GET") {
         const id = path.split("/api/vacantes/")[1];
         if (id === "mis") {
-          return new Response(JSON.stringify({ error: "No autorizado" }), { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+          return new Response(JSON.stringify({ error: "No autorizado" }), {
+            status: 401,
+            headers: { ...corsHeaders, "Content-Type": "application/json" },
+          });
         }
         const vacante = await prisma.vacante.findUnique({
           where: { id },
-          include: { comercio: { select: { nombre: true, slug: true, foto: true, rubro: true, barrio: true, whatsapp: true } } },
+          include: {
+            comercio: {
+              select: {
+                nombre: true,
+                slug: true,
+                foto: true,
+                rubro: true,
+                barrio: true,
+                whatsapp: true,
+              },
+            },
+          },
         });
-        if (!vacante || !vacante.activa) return new Response(JSON.stringify({ error: "Vacante no encontrada" }), { status: 404, headers: { ...corsHeaders, "Content-Type": "application/json" } });
-        return new Response(JSON.stringify(vacante), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+        if (!vacante || !vacante.activa)
+          return new Response(
+            JSON.stringify({ error: "Vacante no encontrada" }),
+            {
+              status: 404,
+              headers: { ...corsHeaders, "Content-Type": "application/json" },
+            },
+          );
+        return new Response(JSON.stringify(vacante), {
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
       }
 
       // PUT /api/vacantes/:id — actualizar vacante (requiere auth + ser dueño)
       if (path.match(/^\/api\/vacantes\/[^/]+$/) && method === "PUT") {
-        const clerkUserId = await verifyClerkToken(req);
-        if (!clerkUserId) return new Response(JSON.stringify({ error: "No autorizado" }), { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+        const clerkUserId = await verifyClerkToken(req).catch(() => null);
+        if (!clerkUserId)
+          return new Response(JSON.stringify({ error: "No autorizado" }), {
+            status: 401,
+            headers: { ...corsHeaders, "Content-Type": "application/json" },
+          });
         const id = path.split("/api/vacantes/")[1];
-        const comercio = await prisma.comercio.findUnique({ where: { clerkUserId } });
-        if (!comercio) return new Response(JSON.stringify({ error: "No autorizado" }), { status: 403, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+        const comercio = await prisma.comercio.findUnique({
+          where: { clerkUserId },
+        });
+        if (!comercio)
+          return new Response(JSON.stringify({ error: "No autorizado" }), {
+            status: 403,
+            headers: { ...corsHeaders, "Content-Type": "application/json" },
+          });
         const vacante = await prisma.vacante.findUnique({ where: { id } });
-        if (!vacante || vacante.comercioId !== comercio.id) return new Response(JSON.stringify({ error: "Vacante no encontrada" }), { status: 404, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+        if (!vacante || vacante.comercioId !== comercio.id)
+          return new Response(
+            JSON.stringify({ error: "Vacante no encontrada" }),
+            {
+              status: 404,
+              headers: { ...corsHeaders, "Content-Type": "application/json" },
+            },
+          );
         const body = await req.json();
         const updateData: Record<string, unknown> = {};
-        if (body.titulo) updateData.titulo = sanitizeText(body.titulo as string, 150);
-        if (body.descripcion) updateData.descripcion = sanitizeText(body.descripcion as string, 1000);
-        if (body.habilidades) updateData.habilidades = (body.habilidades as string[]).map((h) => sanitizeText(h, 60)).filter(Boolean);
-        if (body.barrio !== undefined) updateData.barrio = sanitizeText(body.barrio as string, 100) || null;
-        if (body.horario !== undefined) updateData.horario = sanitizeText(body.horario as string, 150) || null;
-        if (body.salario !== undefined) updateData.salario = sanitizeText(body.salario as string, 80) || null;
-        if (body.modalidad !== undefined) updateData.modalidad = sanitizeText(body.modalidad as string, 60) || null;
-        if (body.activa !== undefined) updateData.activa = body.activa === true || body.activa === "true";
-        const updated = await prisma.vacante.update({ where: { id }, data: updateData });
-        return new Response(JSON.stringify(updated), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+        if (body.titulo)
+          updateData.titulo = sanitizeText(body.titulo as string, 150);
+        if (body.descripcion)
+          updateData.descripcion = sanitizeText(
+            body.descripcion as string,
+            1000,
+          );
+        if (body.habilidades)
+          updateData.habilidades = (body.habilidades as string[])
+            .map((h) => sanitizeText(h, 60))
+            .filter(Boolean);
+        if (body.barrio !== undefined)
+          updateData.barrio = sanitizeText(body.barrio as string, 100) || null;
+        if (body.horario !== undefined)
+          updateData.horario =
+            sanitizeText(body.horario as string, 150) || null;
+        if (body.salario !== undefined)
+          updateData.salario = sanitizeText(body.salario as string, 80) || null;
+        if (body.modalidad !== undefined)
+          updateData.modalidad =
+            sanitizeText(body.modalidad as string, 60) || null;
+        if (body.activa !== undefined)
+          updateData.activa = body.activa === true || body.activa === "true";
+        const updated = await prisma.vacante.update({
+          where: { id },
+          data: updateData,
+        });
+        return new Response(JSON.stringify(updated), {
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
       }
 
       // DELETE /api/vacantes/:id — eliminar vacante (requiere auth + ser dueño)
       if (path.match(/^\/api\/vacantes\/[^/]+$/) && method === "DELETE") {
-        const clerkUserId = await verifyClerkToken(req);
-        if (!clerkUserId) return new Response(JSON.stringify({ error: "No autorizado" }), { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+        const clerkUserId = await verifyClerkToken(req).catch(() => null);
+        if (!clerkUserId)
+          return new Response(JSON.stringify({ error: "No autorizado" }), {
+            status: 401,
+            headers: { ...corsHeaders, "Content-Type": "application/json" },
+          });
         const id = path.split("/api/vacantes/")[1];
-        const comercio = await prisma.comercio.findUnique({ where: { clerkUserId } });
-        if (!comercio) return new Response(JSON.stringify({ error: "No autorizado" }), { status: 403, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+        const comercio = await prisma.comercio.findUnique({
+          where: { clerkUserId },
+        });
+        if (!comercio)
+          return new Response(JSON.stringify({ error: "No autorizado" }), {
+            status: 403,
+            headers: { ...corsHeaders, "Content-Type": "application/json" },
+          });
         const vacante = await prisma.vacante.findUnique({ where: { id } });
-        if (!vacante || vacante.comercioId !== comercio.id) return new Response(JSON.stringify({ error: "Vacante no encontrada" }), { status: 404, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+        if (!vacante || vacante.comercioId !== comercio.id)
+          return new Response(
+            JSON.stringify({ error: "Vacante no encontrada" }),
+            {
+              status: 404,
+              headers: { ...corsHeaders, "Content-Type": "application/json" },
+            },
+          );
         await prisma.vacante.delete({ where: { id } });
-        return new Response(JSON.stringify({ ok: true }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+        return new Response(JSON.stringify({ ok: true }), {
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
       }
 
       // POST /api/vacantes/:id/conversaciones — postularse/contactar (público)
-      if (path.match(/^\/api\/vacantes\/[^/]+\/conversaciones$/) && method === "POST") {
-        const id = path.split("/api/vacantes/")[1].replace("/conversaciones", "");
+      if (
+        path.match(/^\/api\/vacantes\/[^/]+\/conversaciones$/) &&
+        method === "POST"
+      ) {
+        const id = path
+          .split("/api/vacantes/")[1]
+          .replace("/conversaciones", "");
         const vacante = await prisma.vacante.findUnique({ where: { id } });
-        if (!vacante || !vacante.activa) return new Response(JSON.stringify({ error: "Vacante no encontrada" }), { status: 404, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+        if (!vacante || !vacante.activa)
+          return new Response(
+            JSON.stringify({ error: "Vacante no encontrada" }),
+            {
+              status: 404,
+              headers: { ...corsHeaders, "Content-Type": "application/json" },
+            },
+          );
         const body = await req.json();
         const clientToken = sanitizeText(body.clientToken as string, 100);
-        const clientName = sanitizeText(body.clientName as string, 100) || undefined;
+        const clientName =
+          sanitizeText(body.clientName as string, 100) || undefined;
         const mensaje = sanitizeText(body.mensaje as string, 1000);
-        if (!clientToken || !mensaje) return new Response(JSON.stringify({ error: "Faltan campos: clientToken, mensaje" }), { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+        if (!clientToken || !mensaje)
+          return new Response(
+            JSON.stringify({ error: "Faltan campos: clientToken, mensaje" }),
+            {
+              status: 400,
+              headers: { ...corsHeaders, "Content-Type": "application/json" },
+            },
+          );
         const convo = await prisma.vacanteConversation.create({
           data: {
             vacanteId: vacante.id,
@@ -2841,16 +4506,35 @@ https://reportesreconquista.com`;
           },
           include: { Message: true },
         });
-        return new Response(JSON.stringify(convo), { status: 201, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+        return new Response(JSON.stringify(convo), {
+          status: 201,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
       }
 
       // GET /api/vacantes/mis/conversaciones — ver postulaciones recibidas (requiere auth + comercio)
       if (path === "/api/vacantes/mis/conversaciones" && method === "GET") {
-        const clerkUserId = await verifyClerkToken(req);
-        if (!clerkUserId) return new Response(JSON.stringify({ error: "No autorizado" }), { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } });
-        const comercio = await prisma.comercio.findUnique({ where: { clerkUserId } });
-        if (!comercio) return new Response(JSON.stringify({ error: "No tenés un comercio registrado" }), { status: 404, headers: { ...corsHeaders, "Content-Type": "application/json" } });
-        const vacantes = await prisma.vacante.findMany({ where: { comercioId: comercio.id }, select: { id: true } });
+        const clerkUserId = await verifyClerkToken(req).catch(() => null);
+        if (!clerkUserId)
+          return new Response(JSON.stringify({ error: "No autorizado" }), {
+            status: 401,
+            headers: { ...corsHeaders, "Content-Type": "application/json" },
+          });
+        const comercio = await prisma.comercio.findUnique({
+          where: { clerkUserId },
+        });
+        if (!comercio)
+          return new Response(
+            JSON.stringify({ error: "No tenés un comercio registrado" }),
+            {
+              status: 404,
+              headers: { ...corsHeaders, "Content-Type": "application/json" },
+            },
+          );
+        const vacantes = await prisma.vacante.findMany({
+          where: { comercioId: comercio.id },
+          select: { id: true },
+        });
         const vacanteIds = vacantes.map((v) => v.id);
         const convos = await prisma.vacanteConversation.findMany({
           where: { vacanteId: { in: vacanteIds } },
@@ -2860,211 +4544,476 @@ https://reportesreconquista.com`;
           },
           orderBy: { updatedAt: "desc" },
         });
-        return new Response(JSON.stringify(convos), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+        return new Response(JSON.stringify(convos), {
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
       }
 
       // GET /api/vacantes/conversaciones/:id — ver conversación (por token o auth de comercio)
-      if (path.match(/^\/api\/vacantes\/conversaciones\/[^/]+$/) && method === "GET") {
+      if (
+        path.match(/^\/api\/vacantes\/conversaciones\/[^/]+$/) &&
+        method === "GET"
+      ) {
         const convId = path.split("/api/vacantes/conversaciones/")[1];
         const clientToken = url.searchParams.get("clientToken");
-        const clerkUserId = clientToken ? null : await verifyClerkToken(req).catch(() => null);
+        const clerkUserId = clientToken
+          ? null
+          : await verifyClerkToken(req).catch(() => null);
         const convo = await prisma.vacanteConversation.findUnique({
           where: { id: convId },
           include: {
             Message: { orderBy: { createdAt: "asc" } },
-            vacante: { include: { comercio: { select: { clerkUserId: true, nombre: true, slug: true, foto: true, whatsapp: true } } } },
+            vacante: {
+              include: {
+                comercio: {
+                  select: {
+                    clerkUserId: true,
+                    nombre: true,
+                    slug: true,
+                    foto: true,
+                    whatsapp: true,
+                  },
+                },
+              },
+            },
           },
         });
-        if (!convo) return new Response(JSON.stringify({ error: "Conversación no encontrada" }), { status: 404, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+        if (!convo)
+          return new Response(
+            JSON.stringify({ error: "Conversación no encontrada" }),
+            {
+              status: 404,
+              headers: { ...corsHeaders, "Content-Type": "application/json" },
+            },
+          );
         const isClient = clientToken && convo.clientToken === clientToken;
-        const isComercio = clerkUserId && convo.vacante.comercio.clerkUserId === clerkUserId;
-        if (!isClient && !isComercio) return new Response(JSON.stringify({ error: "No autorizado" }), { status: 403, headers: { ...corsHeaders, "Content-Type": "application/json" } });
-        return new Response(JSON.stringify(convo), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+        const isComercio =
+          clerkUserId && convo.vacante.comercio.clerkUserId === clerkUserId;
+        if (!isClient && !isComercio)
+          return new Response(JSON.stringify({ error: "No autorizado" }), {
+            status: 403,
+            headers: { ...corsHeaders, "Content-Type": "application/json" },
+          });
+        return new Response(JSON.stringify(convo), {
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
       }
 
       // POST /api/vacantes/conversaciones/:id/mensajes — enviar mensaje
-      if (path.match(/^\/api\/vacantes\/conversaciones\/[^/]+\/mensajes$/) && method === "POST") {
-        const convId = path.split("/api/vacantes/conversaciones/")[1].replace("/mensajes", "");
+      if (
+        path.match(/^\/api\/vacantes\/conversaciones\/[^/]+\/mensajes$/) &&
+        method === "POST"
+      ) {
+        const convId = path
+          .split("/api/vacantes/conversaciones/")[1]
+          .replace("/mensajes", "");
         const body = await req.json();
         const clientToken = body.clientToken as string | undefined;
-        const clerkUserId = clientToken ? null : await verifyClerkToken(req).catch(() => null);
+        const clerkUserId = clientToken
+          ? null
+          : await verifyClerkToken(req).catch(() => null);
         const convo = await prisma.vacanteConversation.findUnique({
           where: { id: convId },
-          include: { vacante: { include: { comercio: { select: { clerkUserId: true } } } } },
+          include: {
+            vacante: {
+              include: { comercio: { select: { clerkUserId: true } } },
+            },
+          },
         });
-        if (!convo) return new Response(JSON.stringify({ error: "Conversación no encontrada" }), { status: 404, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+        if (!convo)
+          return new Response(
+            JSON.stringify({ error: "Conversación no encontrada" }),
+            {
+              status: 404,
+              headers: { ...corsHeaders, "Content-Type": "application/json" },
+            },
+          );
         const isClient = clientToken && convo.clientToken === clientToken;
-        const isComercio = clerkUserId && convo.vacante.comercio.clerkUserId === clerkUserId;
-        if (!isClient && !isComercio) return new Response(JSON.stringify({ error: "No autorizado" }), { status: 403, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+        const isComercio =
+          clerkUserId && convo.vacante.comercio.clerkUserId === clerkUserId;
+        if (!isClient && !isComercio)
+          return new Response(JSON.stringify({ error: "No autorizado" }), {
+            status: 403,
+            headers: { ...corsHeaders, "Content-Type": "application/json" },
+          });
         const content = sanitizeText(body.content as string, 1000);
-        if (!content) return new Response(JSON.stringify({ error: "Falta el contenido del mensaje" }), { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+        if (!content)
+          return new Response(
+            JSON.stringify({ error: "Falta el contenido del mensaje" }),
+            {
+              status: 400,
+              headers: { ...corsHeaders, "Content-Type": "application/json" },
+            },
+          );
         const senderType = isComercio ? "professional" : "client";
         const msg = await prisma.vacanteMessage.create({
           data: { conversationId: convId, senderType, content },
         });
-        await prisma.vacanteConversation.update({ where: { id: convId }, data: { updatedAt: new Date() } });
+        await prisma.vacanteConversation.update({
+          where: { id: convId },
+          data: { updatedAt: new Date() },
+        });
 
-        const preview = content.length > 60 ? content.slice(0, 60) + "…" : content;
+        const preview =
+          content.length > 60 ? content.slice(0, 60) + "…" : content;
 
         // Push al comercio cuando el cliente manda un mensaje
         if (senderType === "client") {
           try {
             const comercioClerkId = convo.vacante.comercio.clerkUserId;
             if (comercioClerkId) {
-              const subs = await prisma.pushSubscription.findMany({ where: { clerkUserId: comercioClerkId } });
-              await Promise.allSettled(subs.map(async (sub) => {
-                try {
-                  await webPush.sendNotification(
-                    { endpoint: sub.endpoint, keys: { p256dh: sub.p256dh, auth: sub.auth } },
-                    JSON.stringify({ title: "Nuevo mensaje en vacante", body: preview, url: `/chat/vacante/${convId}`, icon: "/icon-192x192.png", tag: `vacante-${convId}` }),
-                    PUSH_OPTIONS,
-                  );
-                } catch (err: any) {
-                  if (err.statusCode === 410 || err.statusCode === 404) {
-                    await prisma.pushSubscription.delete({ where: { endpoint: sub.endpoint } }).catch(() => {});
+              const subs = await prisma.pushSubscription.findMany({
+                where: { clerkUserId: comercioClerkId },
+              });
+              await Promise.allSettled(
+                subs.map(async (sub) => {
+                  try {
+                    await webPush.sendNotification(
+                      {
+                        endpoint: sub.endpoint,
+                        keys: { p256dh: sub.p256dh, auth: sub.auth },
+                      },
+                      JSON.stringify({
+                        title: "Nuevo mensaje en vacante",
+                        body: preview,
+                        url: `/chat/vacante/${convId}`,
+                        icon: "/icon-192x192.png",
+                        tag: `vacante-${convId}`,
+                      }),
+                      PUSH_OPTIONS,
+                    );
+                  } catch (err: any) {
+                    if (err.statusCode === 410 || err.statusCode === 404) {
+                      await prisma.pushSubscription
+                        .delete({ where: { endpoint: sub.endpoint } })
+                        .catch(() => {});
+                    }
                   }
-                }
-              }));
+                }),
+              );
             }
-          } catch (e) { console.error("[push/vacante-msg] unexpected:", e); }
+          } catch (e) {
+            console.error("[push/vacante-msg] unexpected:", e);
+          }
         }
 
         // Push al cliente cuando el comercio responde
         if (senderType === "professional" && convo.clientToken) {
           try {
             const subs = await prisma.pushSubscription.findMany({
-              where: { OR: [{ clientToken: convo.clientToken }, { clerkUserId: convo.clientToken }] },
+              where: {
+                OR: [
+                  { clientToken: convo.clientToken },
+                  { clerkUserId: convo.clientToken },
+                ],
+              },
             });
-            await Promise.allSettled(subs.map(async (sub) => {
-              try {
-                await webPush.sendNotification(
-                  { endpoint: sub.endpoint, keys: { p256dh: sub.p256dh, auth: sub.auth } },
-                  JSON.stringify({ title: "Te respondieron", body: preview, url: `/chat/vacante/${convId}`, icon: "/icon-192x192.png", tag: `vacante-${convId}` }),
-                  PUSH_OPTIONS,
-                );
-              } catch (err: any) {
-                if (err.statusCode === 410 || err.statusCode === 404) {
-                  await prisma.pushSubscription.delete({ where: { endpoint: sub.endpoint } }).catch(() => {});
+            await Promise.allSettled(
+              subs.map(async (sub) => {
+                try {
+                  await webPush.sendNotification(
+                    {
+                      endpoint: sub.endpoint,
+                      keys: { p256dh: sub.p256dh, auth: sub.auth },
+                    },
+                    JSON.stringify({
+                      title: "Te respondieron",
+                      body: preview,
+                      url: `/chat/vacante/${convId}`,
+                      icon: "/icon-192x192.png",
+                      tag: `vacante-${convId}`,
+                    }),
+                    PUSH_OPTIONS,
+                  );
+                } catch (err: any) {
+                  if (err.statusCode === 410 || err.statusCode === 404) {
+                    await prisma.pushSubscription
+                      .delete({ where: { endpoint: sub.endpoint } })
+                      .catch(() => {});
+                  }
                 }
-              }
-            }));
-          } catch (e) { console.error("[push/vacante-client-reply] unexpected:", e); }
+              }),
+            );
+          } catch (e) {
+            console.error("[push/vacante-client-reply] unexpected:", e);
+          }
         }
 
-        return new Response(JSON.stringify(msg), { status: 201, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+        return new Response(JSON.stringify(msg), {
+          status: 201,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
       }
 
       // ─── FIN VACANTES ─────────────────────────────────────────────────────────
 
       // GET /api/admin/professionals — listar todos los profesionales (requiere auth)
       if (path === "/api/admin/professionals" && method === "GET") {
-        const clerkUserId = await verifyClerkToken(req);
-        if (!clerkUserId) return new Response(JSON.stringify({ error: "No autorizado" }), { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } });
-        const admins = (process.env.ADMIN_CLERK_IDS || "").split(",").map(s => s.trim()).filter(Boolean);
-        if (!admins.includes(clerkUserId)) return new Response(JSON.stringify({ error: "Acceso denegado" }), { status: 403, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+        const clerkUserId = await verifyClerkToken(req).catch(() => null);
+        if (!clerkUserId)
+          return new Response(JSON.stringify({ error: "No autorizado" }), {
+            status: 401,
+            headers: { ...corsHeaders, "Content-Type": "application/json" },
+          });
+        const admins = (process.env.ADMIN_CLERK_IDS || "")
+          .split(",")
+          .map((s) => s.trim())
+          .filter(Boolean);
+        if (!admins.includes(clerkUserId))
+          return new Response(JSON.stringify({ error: "Acceso denegado" }), {
+            status: 403,
+            headers: { ...corsHeaders, "Content-Type": "application/json" },
+          });
         const professionals = await prisma.professional.findMany({
           orderBy: { createdAt: "desc" },
-          select: { id: true, nombre: true, apellido: true, slug: true, tipo: true, oficios: true, barrio: true, foto: true, activo: true, ratingAvg: true, ratingCount: true, createdAt: true },
+          select: {
+            id: true,
+            nombre: true,
+            apellido: true,
+            slug: true,
+            tipo: true,
+            oficios: true,
+            barrio: true,
+            foto: true,
+            activo: true,
+            ratingAvg: true,
+            ratingCount: true,
+            createdAt: true,
+          },
         });
-        return new Response(JSON.stringify(professionals), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+        return new Response(JSON.stringify(professionals), {
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
       }
 
       // DELETE /api/admin/professionals/:id — eliminar profesional (requiere auth admin)
-      if (path.match(/^\/api\/admin\/professionals\/[^/]+$/) && method === "DELETE") {
-        const clerkUserId = await verifyClerkToken(req);
-        if (!clerkUserId) return new Response(JSON.stringify({ error: "No autorizado" }), { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } });
-        const admins = (process.env.ADMIN_CLERK_IDS || "").split(",").map(s => s.trim()).filter(Boolean);
-        if (!admins.includes(clerkUserId)) return new Response(JSON.stringify({ error: "Acceso denegado" }), { status: 403, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      if (
+        path.match(/^\/api\/admin\/professionals\/[^/]+$/) &&
+        method === "DELETE"
+      ) {
+        const clerkUserId = await verifyClerkToken(req).catch(() => null);
+        if (!clerkUserId)
+          return new Response(JSON.stringify({ error: "No autorizado" }), {
+            status: 401,
+            headers: { ...corsHeaders, "Content-Type": "application/json" },
+          });
+        const admins = (process.env.ADMIN_CLERK_IDS || "")
+          .split(",")
+          .map((s) => s.trim())
+          .filter(Boolean);
+        if (!admins.includes(clerkUserId))
+          return new Response(JSON.stringify({ error: "Acceso denegado" }), {
+            status: 403,
+            headers: { ...corsHeaders, "Content-Type": "application/json" },
+          });
         const id = path.split("/")[4];
         await prisma.professional.delete({ where: { id } });
-        return new Response(JSON.stringify({ ok: true }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+        return new Response(JSON.stringify({ ok: true }), {
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
       }
 
       // GET /api/admin/reports — listar todos los reportes (requiere auth admin)
       if (path === "/api/admin/reports" && method === "GET") {
-        const clerkUserId = await verifyClerkToken(req);
-        if (!clerkUserId) return new Response(JSON.stringify({ error: "No autorizado" }), { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } });
-        const admins = (process.env.ADMIN_CLERK_IDS || "").split(",").map(s => s.trim()).filter(Boolean);
-        if (!admins.includes(clerkUserId)) return new Response(JSON.stringify({ error: "Acceso denegado" }), { status: 403, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+        const clerkUserId = await verifyClerkToken(req).catch(() => null);
+        if (!clerkUserId)
+          return new Response(JSON.stringify({ error: "No autorizado" }), {
+            status: 401,
+            headers: { ...corsHeaders, "Content-Type": "application/json" },
+          });
+        const admins = (process.env.ADMIN_CLERK_IDS || "")
+          .split(",")
+          .map((s) => s.trim())
+          .filter(Boolean);
+        if (!admins.includes(clerkUserId))
+          return new Response(JSON.stringify({ error: "Acceso denegado" }), {
+            status: 403,
+            headers: { ...corsHeaders, "Content-Type": "application/json" },
+          });
         const reports = await prisma.report.findMany({
           orderBy: { createdAt: "desc" },
           take: 100,
         });
-        return new Response(JSON.stringify(reports), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+        return new Response(JSON.stringify(reports), {
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
       }
 
       // DELETE /api/admin/reports/:id — eliminar reporte (requiere auth admin)
       if (path.match(/^\/api\/admin\/reports\/[^/]+$/) && method === "DELETE") {
-        const clerkUserId = await verifyClerkToken(req);
-        if (!clerkUserId) return new Response(JSON.stringify({ error: "No autorizado" }), { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } });
-        const admins = (process.env.ADMIN_CLERK_IDS || "").split(",").map(s => s.trim()).filter(Boolean);
-        if (!admins.includes(clerkUserId)) return new Response(JSON.stringify({ error: "Acceso denegado" }), { status: 403, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+        const clerkUserId = await verifyClerkToken(req).catch(() => null);
+        if (!clerkUserId)
+          return new Response(JSON.stringify({ error: "No autorizado" }), {
+            status: 401,
+            headers: { ...corsHeaders, "Content-Type": "application/json" },
+          });
+        const admins = (process.env.ADMIN_CLERK_IDS || "")
+          .split(",")
+          .map((s) => s.trim())
+          .filter(Boolean);
+        if (!admins.includes(clerkUserId))
+          return new Response(JSON.stringify({ error: "Acceso denegado" }), {
+            status: 403,
+            headers: { ...corsHeaders, "Content-Type": "application/json" },
+          });
         const id = path.split("/")[4];
         await prisma.report.delete({ where: { id } });
-        return new Response(JSON.stringify({ ok: true }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+        return new Response(JSON.stringify({ ok: true }), {
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
       }
 
       // GET /api/admin/reviews — listar todas las reseñas (requiere auth admin)
       if (path === "/api/admin/reviews" && method === "GET") {
-        const clerkUserId = await verifyClerkToken(req);
-        if (!clerkUserId) return new Response(JSON.stringify({ error: "No autorizado" }), { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } });
-        const admins = (process.env.ADMIN_CLERK_IDS || "").split(",").map(s => s.trim()).filter(Boolean);
-        if (!admins.includes(clerkUserId)) return new Response(JSON.stringify({ error: "Acceso denegado" }), { status: 403, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+        const clerkUserId = await verifyClerkToken(req).catch(() => null);
+        if (!clerkUserId)
+          return new Response(JSON.stringify({ error: "No autorizado" }), {
+            status: 401,
+            headers: { ...corsHeaders, "Content-Type": "application/json" },
+          });
+        const admins = (process.env.ADMIN_CLERK_IDS || "")
+          .split(",")
+          .map((s) => s.trim())
+          .filter(Boolean);
+        if (!admins.includes(clerkUserId))
+          return new Response(JSON.stringify({ error: "Acceso denegado" }), {
+            status: 403,
+            headers: { ...corsHeaders, "Content-Type": "application/json" },
+          });
         const onlyReported = url.searchParams.get("reported") === "true";
         const reviews = await prisma.publicReview.findMany({
           where: onlyReported ? { reported: true } : undefined,
           orderBy: { createdAt: "desc" },
           take: 100,
-          include: { professional: { select: { nombre: true, apellido: true, slug: true } } },
+          include: {
+            professional: {
+              select: { nombre: true, apellido: true, slug: true },
+            },
+          },
         });
-        return new Response(JSON.stringify(reviews), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+        return new Response(JSON.stringify(reviews), {
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
       }
 
       // DELETE /api/admin/reviews/:id — eliminar reseña (requiere auth admin)
       if (path.match(/^\/api\/admin\/reviews\/[^/]+$/) && method === "DELETE") {
-        const clerkUserId = await verifyClerkToken(req);
-        if (!clerkUserId) return new Response(JSON.stringify({ error: "No autorizado" }), { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } });
-        const admins = (process.env.ADMIN_CLERK_IDS || "").split(",").map(s => s.trim()).filter(Boolean);
-        if (!admins.includes(clerkUserId)) return new Response(JSON.stringify({ error: "Acceso denegado" }), { status: 403, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+        const clerkUserId = await verifyClerkToken(req).catch(() => null);
+        if (!clerkUserId)
+          return new Response(JSON.stringify({ error: "No autorizado" }), {
+            status: 401,
+            headers: { ...corsHeaders, "Content-Type": "application/json" },
+          });
+        const admins = (process.env.ADMIN_CLERK_IDS || "")
+          .split(",")
+          .map((s) => s.trim())
+          .filter(Boolean);
+        if (!admins.includes(clerkUserId))
+          return new Response(JSON.stringify({ error: "Acceso denegado" }), {
+            status: 403,
+            headers: { ...corsHeaders, "Content-Type": "application/json" },
+          });
         const id = path.split("/")[4];
         await prisma.publicReview.delete({ where: { id } });
-        return new Response(JSON.stringify({ ok: true }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+        return new Response(JSON.stringify({ ok: true }), {
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
       }
 
       // GET /api/admin/comercios — listar todos los comercios (requiere auth admin)
       if (path === "/api/admin/comercios" && method === "GET") {
-        const clerkUserId = await verifyClerkToken(req);
-        if (!clerkUserId) return new Response(JSON.stringify({ error: "No autorizado" }), { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } });
-        const admins = (process.env.ADMIN_CLERK_IDS || "").split(",").map(s => s.trim()).filter(Boolean);
-        if (!admins.includes(clerkUserId)) return new Response(JSON.stringify({ error: "Acceso denegado" }), { status: 403, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+        const clerkUserId = await verifyClerkToken(req).catch(() => null);
+        if (!clerkUserId)
+          return new Response(JSON.stringify({ error: "No autorizado" }), {
+            status: 401,
+            headers: { ...corsHeaders, "Content-Type": "application/json" },
+          });
+        const admins = (process.env.ADMIN_CLERK_IDS || "")
+          .split(",")
+          .map((s) => s.trim())
+          .filter(Boolean);
+        if (!admins.includes(clerkUserId))
+          return new Response(JSON.stringify({ error: "Acceso denegado" }), {
+            status: 403,
+            headers: { ...corsHeaders, "Content-Type": "application/json" },
+          });
         const comercios = await prisma.comercio.findMany({
           orderBy: { createdAt: "desc" },
-          select: { id: true, nombre: true, rubro: true, slug: true, barrio: true, foto: true, logo: true, activo: true, isPremium: true, createdAt: true },
+          select: {
+            id: true,
+            nombre: true,
+            rubro: true,
+            slug: true,
+            barrio: true,
+            foto: true,
+            logo: true,
+            activo: true,
+            isPremium: true,
+            createdAt: true,
+          },
         });
-        return new Response(JSON.stringify(comercios), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+        return new Response(JSON.stringify(comercios), {
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
       }
 
       // PATCH /api/admin/comercios/:id/premium — toggle premium (requiere auth admin)
-      if (path.match(/^\/api\/admin\/comercios\/[^/]+\/premium$/) && method === "PATCH") {
-        const clerkUserId = await verifyClerkToken(req);
-        if (!clerkUserId) return new Response(JSON.stringify({ error: "No autorizado" }), { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } });
-        const admins = (process.env.ADMIN_CLERK_IDS || "").split(",").map(s => s.trim()).filter(Boolean);
-        if (!admins.includes(clerkUserId)) return new Response(JSON.stringify({ error: "Acceso denegado" }), { status: 403, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      if (
+        path.match(/^\/api\/admin\/comercios\/[^/]+\/premium$/) &&
+        method === "PATCH"
+      ) {
+        const clerkUserId = await verifyClerkToken(req).catch(() => null);
+        if (!clerkUserId)
+          return new Response(JSON.stringify({ error: "No autorizado" }), {
+            status: 401,
+            headers: { ...corsHeaders, "Content-Type": "application/json" },
+          });
+        const admins = (process.env.ADMIN_CLERK_IDS || "")
+          .split(",")
+          .map((s) => s.trim())
+          .filter(Boolean);
+        if (!admins.includes(clerkUserId))
+          return new Response(JSON.stringify({ error: "Acceso denegado" }), {
+            status: 403,
+            headers: { ...corsHeaders, "Content-Type": "application/json" },
+          });
         const id = path.split("/")[4];
         const body = await req.json();
-        const updated = await prisma.comercio.update({ where: { id }, data: { isPremium: !!body.isPremium } });
-        return new Response(JSON.stringify({ id: updated.id, isPremium: updated.isPremium }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+        const updated = await prisma.comercio.update({
+          where: { id },
+          data: { isPremium: !!body.isPremium },
+        });
+        return new Response(
+          JSON.stringify({ id: updated.id, isPremium: updated.isPremium }),
+          { headers: { ...corsHeaders, "Content-Type": "application/json" } },
+        );
       }
 
       // DELETE /api/admin/comercios/:id — eliminar comercio (requiere auth admin)
-      if (path.match(/^\/api\/admin\/comercios\/[^/]+$/) && method === "DELETE") {
-        const clerkUserId = await verifyClerkToken(req);
-        if (!clerkUserId) return new Response(JSON.stringify({ error: "No autorizado" }), { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } });
-        const admins = (process.env.ADMIN_CLERK_IDS || "").split(",").map(s => s.trim()).filter(Boolean);
-        if (!admins.includes(clerkUserId)) return new Response(JSON.stringify({ error: "Acceso denegado" }), { status: 403, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      if (
+        path.match(/^\/api\/admin\/comercios\/[^/]+$/) &&
+        method === "DELETE"
+      ) {
+        const clerkUserId = await verifyClerkToken(req).catch(() => null);
+        if (!clerkUserId)
+          return new Response(JSON.stringify({ error: "No autorizado" }), {
+            status: 401,
+            headers: { ...corsHeaders, "Content-Type": "application/json" },
+          });
+        const admins = (process.env.ADMIN_CLERK_IDS || "")
+          .split(",")
+          .map((s) => s.trim())
+          .filter(Boolean);
+        if (!admins.includes(clerkUserId))
+          return new Response(JSON.stringify({ error: "Acceso denegado" }), {
+            status: 403,
+            headers: { ...corsHeaders, "Content-Type": "application/json" },
+          });
         const id = path.split("/")[4];
         await prisma.comercio.delete({ where: { id } });
-        return new Response(JSON.stringify({ ok: true }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+        return new Response(JSON.stringify({ ok: true }), {
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
       }
 
       // DELETE /api/supermarkets/:id - Eliminar supermercado y sus ofertas
@@ -3072,9 +5021,12 @@ https://reportesreconquista.com`;
         const id = path.split("/")[3];
         await db.query('DELETE FROM "Offer" WHERE "supermarketId" = $1', [id]);
         await db.query('DELETE FROM "Supermarket" WHERE id = $1', [id]);
-        return new Response(JSON.stringify({ message: "Supermercado eliminado" }), {
-          headers: { ...corsHeaders, "Content-Type": "application/json" },
-        });
+        return new Response(
+          JSON.stringify({ message: "Supermercado eliminado" }),
+          {
+            headers: { ...corsHeaders, "Content-Type": "application/json" },
+          },
+        );
       }
 
       // ─── FIN SUPERMARKETS & OFERTAS ───────────────────────────────────────
@@ -3089,7 +5041,10 @@ https://reportesreconquista.com`;
         const oficio = url.searchParams.get("oficio");
         const barrio = url.searchParams.get("barrio");
         const tipoParam = url.searchParams.get("tipo");
-        const tipo = tipoParam === "profesion" || tipoParam === "oficio" ? tipoParam : null;
+        const tipo =
+          tipoParam === "profesion" || tipoParam === "oficio"
+            ? tipoParam
+            : null;
         const professionals = await prisma.professional.findMany({
           where: {
             activo: true,
@@ -3098,9 +5053,17 @@ https://reportesreconquista.com`;
             ...(tipo ? { tipo } : {}),
           },
           select: {
-            id: true, nombre: true, apellido: true, slug: true,
-            tipo: true, oficios: true, barrio: true, foto: true,
-            disponible: true, ratingAvg: true, ratingCount: true,
+            id: true,
+            nombre: true,
+            apellido: true,
+            slug: true,
+            tipo: true,
+            oficios: true,
+            barrio: true,
+            foto: true,
+            disponible: true,
+            ratingAvg: true,
+            ratingCount: true,
           },
           orderBy: { ratingAvg: "desc" },
         });
@@ -3111,45 +5074,101 @@ https://reportesreconquista.com`;
 
       // GET /api/professionals/me — perfil propio (requiere auth)
       if (path === "/api/professionals/me" && method === "GET") {
-        const clerkUserId = await verifyClerkToken(req);
-        if (!clerkUserId) return new Response(JSON.stringify({ error: "No autorizado" }), { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } });
-        const professional = await prisma.professional.findUnique({ where: { clerkUserId } });
-        if (!professional) return new Response(JSON.stringify({ error: "Perfil no encontrado" }), { status: 404, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+        const clerkUserId = await verifyClerkToken(req).catch(() => null);
+        if (!clerkUserId)
+          return new Response(JSON.stringify({ error: "No autorizado" }), {
+            status: 401,
+            headers: { ...corsHeaders, "Content-Type": "application/json" },
+          });
+        const professional = await prisma.professional.findUnique({
+          where: { clerkUserId },
+        });
+        if (!professional)
+          return new Response(
+            JSON.stringify({ error: "Perfil no encontrado" }),
+            {
+              status: 404,
+              headers: { ...corsHeaders, "Content-Type": "application/json" },
+            },
+          );
         return new Response(JSON.stringify(professional), {
           headers: { ...corsHeaders, "Content-Type": "application/json" },
         });
       }
 
       // GET /api/professionals/:slug/reviews — opiniones públicas (solo no reportadas)
-      if (path.match(/^\/api\/professionals\/[^/]+\/reviews$/) && method === "GET") {
+      if (
+        path.match(/^\/api\/professionals\/[^/]+\/reviews$/) &&
+        method === "GET"
+      ) {
         const slug = path.split("/")[3];
         const pro = await prisma.professional.findUnique({ where: { slug } });
-        if (!pro) return new Response(JSON.stringify({ error: "No encontrado" }), { status: 404, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+        if (!pro)
+          return new Response(JSON.stringify({ error: "No encontrado" }), {
+            status: 404,
+            headers: { ...corsHeaders, "Content-Type": "application/json" },
+          });
         const reviews = await prisma.publicReview.findMany({
           where: { professionalId: pro.id, reported: false },
           orderBy: { createdAt: "desc" },
         });
-        return new Response(JSON.stringify(reviews), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+        return new Response(JSON.stringify(reviews), {
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
       }
 
       // POST /api/professionals/:slug/reviews — agregar opinión pública
-      if (path.match(/^\/api\/professionals\/[^/]+\/reviews$/) && method === "POST") {
+      if (
+        path.match(/^\/api\/professionals\/[^/]+\/reviews$/) &&
+        method === "POST"
+      ) {
         if (!checkStrictRateLimit(req)) {
-          return new Response(JSON.stringify({ error: "Demasiadas solicitudes. Intentá en un momento." }), { status: 429, headers: { ...corsHeaders, "Content-Type": "application/json", "Retry-After": "60" } });
+          return new Response(
+            JSON.stringify({
+              error: "Demasiadas solicitudes. Intentá en un momento.",
+            }),
+            {
+              status: 429,
+              headers: {
+                ...corsHeaders,
+                "Content-Type": "application/json",
+                "Retry-After": "60",
+              },
+            },
+          );
         }
         const slug = path.split("/")[3];
         const pro = await prisma.professional.findUnique({ where: { slug } });
-        if (!pro) return new Response(JSON.stringify({ error: "No encontrado" }), { status: 404, headers: { ...corsHeaders, "Content-Type": "application/json" } });
-        const contentLength = parseInt(req.headers.get("content-length") || "0");
+        if (!pro)
+          return new Response(JSON.stringify({ error: "No encontrado" }), {
+            status: 404,
+            headers: { ...corsHeaders, "Content-Type": "application/json" },
+          });
+        const contentLength = parseInt(
+          req.headers.get("content-length") || "0",
+        );
         if (contentLength > 10 * 1024 * 1024) {
-          return new Response(JSON.stringify({ error: "Payload demasiado grande" }), { status: 413, headers: corsHeaders });
+          return new Response(
+            JSON.stringify({ error: "Payload demasiado grande" }),
+            { status: 413, headers: corsHeaders },
+          );
         }
 
         // Requerir autenticación
         let clerkUserId: string | null = null;
-        try { clerkUserId = await verifyClerkToken(req); } catch {}
+        try {
+          clerkUserId = await verifyClerkToken(req);
+        } catch {}
         if (!clerkUserId) {
-          return new Response(JSON.stringify({ error: "Tenés que iniciar sesión para dejar una opinión" }), { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+          return new Response(
+            JSON.stringify({
+              error: "Tenés que iniciar sesión para dejar una opinión",
+            }),
+            {
+              status: 401,
+              headers: { ...corsHeaders, "Content-Type": "application/json" },
+            },
+          );
         }
 
         const body = await req.json();
@@ -3157,7 +5176,10 @@ https://reportesreconquista.com`;
         body.reviewerName = sanitizeText(body.reviewerName, 60);
         const { score, comment, reviewerName, clientToken } = body;
         if (!score || !comment || comment.trim().length < 10) {
-          return new Response(JSON.stringify({ error: "Datos inválidos" }), { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+          return new Response(JSON.stringify({ error: "Datos inválidos" }), {
+            status: 400,
+            headers: { ...corsHeaders, "Content-Type": "application/json" },
+          });
         }
 
         // Verificar que el usuario tuvo una conversación con este profesional
@@ -3170,7 +5192,16 @@ https://reportesreconquista.com`;
           },
         });
         if (!conversation) {
-          return new Response(JSON.stringify({ error: "Primero tenés que contactar al profesional para poder dejar una opinión" }), { status: 403, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+          return new Response(
+            JSON.stringify({
+              error:
+                "Primero tenés que contactar al profesional para poder dejar una opinión",
+            }),
+            {
+              status: 403,
+              headers: { ...corsHeaders, "Content-Type": "application/json" },
+            },
+          );
         }
 
         // Una sola opinión por usuario por profesional
@@ -3178,7 +5209,15 @@ https://reportesreconquista.com`;
           where: { professionalId: pro.id, clerkUserId },
         });
         if (existing) {
-          return new Response(JSON.stringify({ error: "Ya dejaste una opinión para este profesional" }), { status: 409, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+          return new Response(
+            JSON.stringify({
+              error: "Ya dejaste una opinión para este profesional",
+            }),
+            {
+              status: 409,
+              headers: { ...corsHeaders, "Content-Type": "application/json" },
+            },
+          );
         }
 
         const review = await prisma.publicReview.create({
@@ -3203,37 +5242,64 @@ https://reportesreconquista.com`;
             ratingCount: agg._count.score,
           },
         });
-        return new Response(JSON.stringify(review), { status: 201, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+        return new Response(JSON.stringify(review), {
+          status: 201,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
       }
 
       // POST /api/professionals/:slug/reviews/:reviewId/report — reportar opinión abusiva
-      if (path.match(/^\/api\/professionals\/[^/]+\/reviews\/[^/]+\/report$/) && method === "POST") {
+      if (
+        path.match(/^\/api\/professionals\/[^/]+\/reviews\/[^/]+\/report$/) &&
+        method === "POST"
+      ) {
         let clerkUserId: string | null = null;
-        try { clerkUserId = await verifyClerkToken(req); } catch {}
+        try {
+          clerkUserId = await verifyClerkToken(req);
+        } catch {}
         if (!clerkUserId) {
-          return new Response(JSON.stringify({ error: "No autorizado" }), { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+          return new Response(JSON.stringify({ error: "No autorizado" }), {
+            status: 401,
+            headers: { ...corsHeaders, "Content-Type": "application/json" },
+          });
         }
         const parts = path.split("/");
         const reviewId = parts[5];
-        const review = await prisma.publicReview.findUnique({ where: { id: reviewId } });
-        if (!review) return new Response(JSON.stringify({ error: "No encontrada" }), { status: 404, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+        const review = await prisma.publicReview.findUnique({
+          where: { id: reviewId },
+        });
+        if (!review)
+          return new Response(JSON.stringify({ error: "No encontrada" }), {
+            status: 404,
+            headers: { ...corsHeaders, "Content-Type": "application/json" },
+          });
         if (review.reported) {
-          return new Response(JSON.stringify({ ok: true }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+          return new Response(JSON.stringify({ ok: true }), {
+            headers: { ...corsHeaders, "Content-Type": "application/json" },
+          });
         }
         await prisma.publicReview.update({
           where: { id: reviewId },
           data: { reported: true, reportedAt: new Date() },
         });
-        return new Response(JSON.stringify({ ok: true }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+        return new Response(JSON.stringify({ ok: true }), {
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
       }
 
       // GET /api/professionals/id/:id — perfil por ID
       if (path.match(/^\/api\/professionals\/id\/[^/]+$/) && method === "GET") {
         const id = path.split("/api/professionals/id/")[1];
         const pro = await prisma.professional.findUnique({ where: { id } });
-        if (!pro) return new Response(JSON.stringify({ error: "No encontrado" }), { status: 404, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+        if (!pro)
+          return new Response(JSON.stringify({ error: "No encontrado" }), {
+            status: 404,
+            headers: { ...corsHeaders, "Content-Type": "application/json" },
+          });
         const { telefono, whatsapp, clerkUserId, ...publicData } = pro;
-        return new Response(JSON.stringify(publicData), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+        return new Response(JSON.stringify(publicData), {
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
       }
 
       // GET /api/professionals/:slug — perfil público
@@ -3244,13 +5310,21 @@ https://reportesreconquista.com`;
           include: {
             Rating: {
               where: { scoreByClient: { not: null } },
-              select: { scoreByClient: true, commentByClient: true, createdAt: true },
+              select: {
+                scoreByClient: true,
+                commentByClient: true,
+                createdAt: true,
+              },
               orderBy: { createdAt: "desc" },
               take: 10,
             },
           },
         });
-        if (!professional) return new Response(JSON.stringify({ error: "No encontrado" }), { status: 404, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+        if (!professional)
+          return new Response(JSON.stringify({ error: "No encontrado" }), {
+            status: 404,
+            headers: { ...corsHeaders, "Content-Type": "application/json" },
+          });
         const { telefono, clerkUserId, ...publicData } = professional;
         return new Response(JSON.stringify(publicData), {
           headers: { ...corsHeaders, "Content-Type": "application/json" },
@@ -3260,30 +5334,84 @@ https://reportesreconquista.com`;
       // POST /api/professionals — crear perfil (auth opcional, registro anónimo permitido)
       if (path === "/api/professionals" && method === "POST") {
         if (!checkStrictRateLimit(req)) {
-          return new Response(JSON.stringify({ error: "Demasiadas solicitudes. Intentá en un momento." }), { status: 429, headers: { ...corsHeaders, "Content-Type": "application/json", "Retry-After": "60" } });
+          return new Response(
+            JSON.stringify({
+              error: "Demasiadas solicitudes. Intentá en un momento.",
+            }),
+            {
+              status: 429,
+              headers: {
+                ...corsHeaders,
+                "Content-Type": "application/json",
+                "Retry-After": "60",
+              },
+            },
+          );
         }
-        const clerkUserId = await verifyClerkToken(req);
+        const clerkUserId = await verifyClerkToken(req).catch(() => null);
         if (clerkUserId) {
-          const existing = await prisma.professional.findUnique({ where: { clerkUserId } });
-          if (existing) return new Response(JSON.stringify({ error: "Ya tenés un perfil creado" }), { status: 409, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+          const existing = await prisma.professional.findUnique({
+            where: { clerkUserId },
+          });
+          if (existing)
+            return new Response(
+              JSON.stringify({ error: "Ya tenés un perfil creado" }),
+              {
+                status: 409,
+                headers: { ...corsHeaders, "Content-Type": "application/json" },
+              },
+            );
         }
-        const contentLength = parseInt(req.headers.get("content-length") || "0");
+        const contentLength = parseInt(
+          req.headers.get("content-length") || "0",
+        );
         if (contentLength > 10 * 1024 * 1024) {
-          return new Response(JSON.stringify({ error: "Payload demasiado grande" }), { status: 413, headers: corsHeaders });
+          return new Response(
+            JSON.stringify({ error: "Payload demasiado grande" }),
+            { status: 413, headers: corsHeaders },
+          );
         }
         const body = await req.json();
         body.nombre = sanitizeText(body.nombre, 60);
         body.apellido = sanitizeText(body.apellido, 60);
         body.descripcion = sanitizeText(body.descripcion, 500);
         body.barrio = sanitizeText(body.barrio, 100);
-        const { nombre, apellido, tipo, oficios, descripcion, barrio, telefono, whatsapp } = body;
-        const safeTipo = tipo === "profesion" || tipo === "oficio" ? tipo : null;
+        const {
+          nombre,
+          apellido,
+          tipo,
+          oficios,
+          descripcion,
+          barrio,
+          telefono,
+          whatsapp,
+        } = body;
+        const safeTipo =
+          tipo === "profesion" || tipo === "oficio" ? tipo : null;
         if (!nombre || !apellido || !oficios?.length || !barrio || !whatsapp) {
-          return new Response(JSON.stringify({ error: "Faltan campos obligatorios" }), { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+          return new Response(
+            JSON.stringify({ error: "Faltan campos obligatorios" }),
+            {
+              status: 400,
+              headers: { ...corsHeaders, "Content-Type": "application/json" },
+            },
+          );
         }
         const slug = generateSlug(nombre, apellido, oficios);
         const professional = await prisma.professional.create({
-          data: { clerkUserId: clerkUserId || null, nombre, apellido, slug, tipo: safeTipo, oficios, descripcion, barrio, telefono, whatsapp, updatedAt: new Date() },
+          data: {
+            clerkUserId: clerkUserId || null,
+            nombre,
+            apellido,
+            slug,
+            tipo: safeTipo,
+            oficios,
+            descripcion,
+            barrio,
+            telefono,
+            whatsapp,
+            updatedAt: new Date(),
+          },
         });
         return new Response(JSON.stringify(professional), {
           status: 201,
@@ -3293,14 +5421,43 @@ https://reportesreconquista.com`;
 
       // PUT /api/professionals/me — actualizar perfil propio (requiere auth)
       if (path === "/api/professionals/me" && method === "PUT") {
-        const clerkUserId = await verifyClerkToken(req);
-        if (!clerkUserId) return new Response(JSON.stringify({ error: "No autorizado" }), { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+        const clerkUserId = await verifyClerkToken(req).catch(() => null);
+        if (!clerkUserId)
+          return new Response(JSON.stringify({ error: "No autorizado" }), {
+            status: 401,
+            headers: { ...corsHeaders, "Content-Type": "application/json" },
+          });
         const body = await req.json();
-        const { nombre, apellido, tipo, oficios, descripcion, barrio, telefono, whatsapp, disponible, fotos, foto } = body;
-        const safeTipo = tipo === "profesion" || tipo === "oficio" ? tipo : undefined;
+        const {
+          nombre,
+          apellido,
+          tipo,
+          oficios,
+          descripcion,
+          barrio,
+          telefono,
+          whatsapp,
+          disponible,
+          fotos,
+          foto,
+        } = body;
+        const safeTipo =
+          tipo === "profesion" || tipo === "oficio" ? tipo : undefined;
         const professional = await prisma.professional.update({
           where: { clerkUserId },
-          data: { nombre, apellido, ...(safeTipo ? { tipo: safeTipo } : {}), oficios, descripcion, barrio, telefono, whatsapp, disponible, fotos, foto },
+          data: {
+            nombre,
+            apellido,
+            ...(safeTipo ? { tipo: safeTipo } : {}),
+            oficios,
+            descripcion,
+            barrio,
+            telefono,
+            whatsapp,
+            disponible,
+            fotos,
+            foto,
+          },
         });
         return new Response(JSON.stringify(professional), {
           headers: { ...corsHeaders, "Content-Type": "application/json" },
@@ -3309,12 +5466,22 @@ https://reportesreconquista.com`;
 
       // POST /api/professionals/me/photo — subir foto de perfil profesional
       if (path === "/api/professionals/me/photo" && method === "POST") {
-        const clerkUserId = await verifyClerkToken(req);
-        if (!clerkUserId) return new Response(JSON.stringify({ error: "No autorizado" }), { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+        const clerkUserId = await verifyClerkToken(req).catch(() => null);
+        if (!clerkUserId)
+          return new Response(JSON.stringify({ error: "No autorizado" }), {
+            status: 401,
+            headers: { ...corsHeaders, "Content-Type": "application/json" },
+          });
         const formData = await req.formData();
         const photoFile = formData.get("photo") as File | null;
         if (!photoFile || photoFile.size === 0) {
-          return new Response(JSON.stringify({ error: "No se recibió ninguna imagen" }), { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+          return new Response(
+            JSON.stringify({ error: "No se recibió ninguna imagen" }),
+            {
+              status: 400,
+              headers: { ...corsHeaders, "Content-Type": "application/json" },
+            },
+          );
         }
         const ext = photoFile.name.split(".").pop() || "jpg";
         const filename = `professional_${crypto.randomUUID()}.${ext}`;
@@ -3336,45 +5503,93 @@ https://reportesreconquista.com`;
 
       // GET /api/favorites — favoritos del usuario logueado
       if (path === "/api/favorites" && method === "GET") {
-        const clerkUserId = await verifyClerkToken(req);
-        if (!clerkUserId) return new Response(JSON.stringify({ error: "No autorizado" }), { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+        const clerkUserId = await verifyClerkToken(req).catch(() => null);
+        if (!clerkUserId)
+          return new Response(JSON.stringify({ error: "No autorizado" }), {
+            status: 401,
+            headers: { ...corsHeaders, "Content-Type": "application/json" },
+          });
         let user = await prisma.user.findUnique({ where: { clerkUserId } });
-        if (!user) return new Response(JSON.stringify([]), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+        if (!user)
+          return new Response(JSON.stringify([]), {
+            headers: { ...corsHeaders, "Content-Type": "application/json" },
+          });
         const favs = await prisma.userFavorite.findMany({
           where: { userId: user.id },
-          include: { Professional: { select: { nombre: true, apellido: true, oficios: true, foto: true, slug: true, ratingAvg: true, ratingCount: true } } },
+          include: {
+            Professional: {
+              select: {
+                nombre: true,
+                apellido: true,
+                oficios: true,
+                foto: true,
+                slug: true,
+                ratingAvg: true,
+                ratingCount: true,
+              },
+            },
+          },
           orderBy: { createdAt: "desc" },
         });
-        return new Response(JSON.stringify(favs), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+        return new Response(JSON.stringify(favs), {
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
       }
 
       // POST /api/favorites — agregar favorito
       if (path === "/api/favorites" && method === "POST") {
-        const clerkUserId = await verifyClerkToken(req);
-        if (!clerkUserId) return new Response(JSON.stringify({ error: "No autorizado" }), { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+        const clerkUserId = await verifyClerkToken(req).catch(() => null);
+        if (!clerkUserId)
+          return new Response(JSON.stringify({ error: "No autorizado" }), {
+            status: 401,
+            headers: { ...corsHeaders, "Content-Type": "application/json" },
+          });
         const { professionalId } = await req.json();
-        if (!professionalId) return new Response(JSON.stringify({ error: "Falta professionalId" }), { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+        if (!professionalId)
+          return new Response(
+            JSON.stringify({ error: "Falta professionalId" }),
+            {
+              status: 400,
+              headers: { ...corsHeaders, "Content-Type": "application/json" },
+            },
+          );
         let user = await prisma.user.findUnique({ where: { clerkUserId } });
         if (!user) {
-          user = await prisma.user.create({ data: { clerkUserId, updatedAt: new Date() } });
+          user = await prisma.user.create({
+            data: { clerkUserId, updatedAt: new Date() },
+          });
         }
         const fav = await prisma.userFavorite.upsert({
           where: { userId_professionalId: { userId: user.id, professionalId } },
           create: { userId: user.id, professionalId },
           update: {},
         });
-        return new Response(JSON.stringify(fav), { status: 201, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+        return new Response(JSON.stringify(fav), {
+          status: 201,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
       }
 
       // DELETE /api/favorites/:professionalId — quitar favorito
       if (path.startsWith("/api/favorites/") && method === "DELETE") {
-        const clerkUserId = await verifyClerkToken(req);
-        if (!clerkUserId) return new Response(JSON.stringify({ error: "No autorizado" }), { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+        const clerkUserId = await verifyClerkToken(req).catch(() => null);
+        if (!clerkUserId)
+          return new Response(JSON.stringify({ error: "No autorizado" }), {
+            status: 401,
+            headers: { ...corsHeaders, "Content-Type": "application/json" },
+          });
         const professionalId = path.split("/api/favorites/")[1];
         const user = await prisma.user.findUnique({ where: { clerkUserId } });
-        if (!user) return new Response(JSON.stringify({ ok: true }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
-        await prisma.userFavorite.deleteMany({ where: { userId: user.id, professionalId } });
-        return new Response(JSON.stringify({ ok: true }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+        if (!user)
+          return new Response(JSON.stringify({ ok: true }), {
+            headers: { ...corsHeaders, "Content-Type": "application/json" },
+          });
+        await prisma.userFavorite.deleteMany({
+          where: { userId: user.id, professionalId },
+        });
+        return new Response(JSON.stringify({ ok: true }), {
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
       }
 
       // ═══════════════════════════════════════════════════════════════════
@@ -3384,17 +5599,40 @@ https://reportesreconquista.com`;
       // POST /api/conversations — cliente inicia contacto
       if (path === "/api/conversations" && method === "POST") {
         if (!checkStrictRateLimit(req)) {
-          return new Response(JSON.stringify({ error: "Demasiadas solicitudes. Intentá en un momento." }), { status: 429, headers: { ...corsHeaders, "Content-Type": "application/json", "Retry-After": "60" } });
+          return new Response(
+            JSON.stringify({
+              error: "Demasiadas solicitudes. Intentá en un momento.",
+            }),
+            {
+              status: 429,
+              headers: {
+                ...corsHeaders,
+                "Content-Type": "application/json",
+                "Retry-After": "60",
+              },
+            },
+          );
         }
-        const contentLength = parseInt(req.headers.get("content-length") || "0");
+        const contentLength = parseInt(
+          req.headers.get("content-length") || "0",
+        );
         if (contentLength > 10 * 1024 * 1024) {
-          return new Response(JSON.stringify({ error: "Payload demasiado grande" }), { status: 413, headers: corsHeaders });
+          return new Response(
+            JSON.stringify({ error: "Payload demasiado grande" }),
+            { status: 413, headers: corsHeaders },
+          );
         }
         const body = await req.json();
         body.firstMessage = sanitizeText(body.firstMessage, 500);
         const { professionalId, clientToken, firstMessage, clientName } = body;
         if (!professionalId || !clientToken || !firstMessage) {
-          return new Response(JSON.stringify({ error: "Faltan campos obligatorios" }), { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+          return new Response(
+            JSON.stringify({ error: "Faltan campos obligatorios" }),
+            {
+              status: 400,
+              headers: { ...corsHeaders, "Content-Type": "application/json" },
+            },
+          );
         }
         const conversation = await prisma.conversation.create({
           data: {
@@ -3402,48 +5640,79 @@ https://reportesreconquista.com`;
             clientToken,
             clientName: clientName ? sanitizeText(clientName, 80) : null,
             updatedAt: new Date(),
-            Message: { create: { senderType: "client", content: firstMessage } },
+            Message: {
+              create: { senderType: "client", content: firstMessage },
+            },
           },
           include: { Message: true },
         });
 
         // Enviar push notification al profesional
         try {
-          const professional = await prisma.professional.findUnique({ where: { id: professionalId } });
+          const professional = await prisma.professional.findUnique({
+            where: { id: professionalId },
+          });
           if (professional?.clerkUserId) {
-            const subs = await prisma.pushSubscription.findMany({ where: { clerkUserId: professional.clerkUserId } });
-            console.log(`[push/nuevo-contacto] sending to ${subs.length} subs for ${professional.clerkUserId}`);
-            const preview = firstMessage.length > 60 ? firstMessage.slice(0, 60) + "…" : firstMessage;
-            const results = await Promise.allSettled(subs.map(async (sub) => {
-              try {
-                await webPush.sendNotification(
-                  { endpoint: sub.endpoint, keys: { p256dh: sub.p256dh, auth: sub.auth } },
-                  JSON.stringify({
-                    title: "Nuevo contacto",
-                    body: preview,
-                    url: `/chat/${conversation.id}`,
-                    icon: "/icon-192x192.png",
-                  }),
-                  PUSH_OPTIONS,
-                );
-                console.log(`[push/nuevo-contacto] OK → ${sub.endpoint.slice(0, 60)}`);
-              } catch (err: any) {
-                console.error(`[push/nuevo-contacto] ERROR ${err.statusCode} → ${sub.endpoint.slice(0, 60)}`, err.body ?? err.message);
-                if (err.statusCode === 410 || err.statusCode === 404) {
-                  await prisma.pushSubscription.delete({ where: { endpoint: sub.endpoint } }).catch(() => {});
+            const subs = await prisma.pushSubscription.findMany({
+              where: { clerkUserId: professional.clerkUserId },
+            });
+            console.log(
+              `[push/nuevo-contacto] sending to ${subs.length} subs for ${professional.clerkUserId}`,
+            );
+            const preview =
+              firstMessage.length > 60
+                ? firstMessage.slice(0, 60) + "…"
+                : firstMessage;
+            const results = await Promise.allSettled(
+              subs.map(async (sub) => {
+                try {
+                  await webPush.sendNotification(
+                    {
+                      endpoint: sub.endpoint,
+                      keys: { p256dh: sub.p256dh, auth: sub.auth },
+                    },
+                    JSON.stringify({
+                      title: "Nuevo contacto",
+                      body: preview,
+                      url: `/chat/${conversation.id}`,
+                      icon: "/icon-192x192.png",
+                    }),
+                    PUSH_OPTIONS,
+                  );
+                  console.log(
+                    `[push/nuevo-contacto] OK → ${sub.endpoint.slice(0, 60)}`,
+                  );
+                } catch (err: any) {
+                  console.error(
+                    `[push/nuevo-contacto] ERROR ${err.statusCode} → ${sub.endpoint.slice(0, 60)}`,
+                    err.body ?? err.message,
+                  );
+                  if (err.statusCode === 410 || err.statusCode === 404) {
+                    await prisma.pushSubscription
+                      .delete({ where: { endpoint: sub.endpoint } })
+                      .catch(() => {});
+                  }
                 }
-              }
-            }));
-            console.log(`[push/nuevo-contacto] done: ${results.map(r => r.status).join(", ")}`);
+              }),
+            );
+            console.log(
+              `[push/nuevo-contacto] done: ${results.map((r) => r.status).join(", ")}`,
+            );
           }
-        } catch (e) { console.error("[push/nuevo-contacto] unexpected:", e); }
+        } catch (e) {
+          console.error("[push/nuevo-contacto] unexpected:", e);
+        }
 
         // Enviar email al profesional via Resend
         if (resend) {
           try {
-            const professional = await prisma.professional.findUnique({ where: { id: professionalId } });
+            const professional = await prisma.professional.findUnique({
+              where: { id: professionalId },
+            });
             if (professional?.clerkUserId) {
-              const clerkUser = await clerk.users.getUser(professional.clerkUserId);
+              const clerkUser = await clerk.users.getUser(
+                professional.clerkUserId,
+              );
               const email = clerkUser.emailAddresses[0]?.emailAddress;
               if (email) {
                 await resend.emails.send({
@@ -3456,7 +5725,7 @@ https://reportesreconquista.com`;
                       <h2 style="color: #ffffff; margin: 0 0 8px;">Tenes un nuevo mensaje</h2>
                       <p style="color: #94a3b8; margin: 0 0 24px;">Un vecino quiere contactarte a traves de Reportes Reconquista.</p>
                       <div style="background: #1e293b; border-radius: 12px; padding: 16px; margin-bottom: 24px; border-left: 4px solid #6366f1;">
-                        <p style="color: #e2e8f0; margin: 0; font-style: italic;">"${firstMessage.slice(0, 200)}${firstMessage.length > 200 ? '...' : ''}"</p>
+                        <p style="color: #e2e8f0; margin: 0; font-style: italic;">"${firstMessage.slice(0, 200)}${firstMessage.length > 200 ? "..." : ""}"</p>
                       </div>
                       <a href="https://reportesreconquista.com/chat/${conversation.id}" style="display: inline-block; background: #6366f1; color: white; padding: 12px 24px; border-radius: 8px; text-decoration: none; font-weight: 600;">
                         Ver mensaje y responder
@@ -3480,10 +5749,18 @@ https://reportesreconquista.com`;
 
       // GET /api/conversations/unread-count — mensajes no leídos para el profesional (requiere auth)
       if (path === "/api/conversations/unread-count" && method === "GET") {
-        const clerkUserId = await verifyClerkToken(req);
-        if (!clerkUserId) return new Response(JSON.stringify({ count: 0 }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
-        const professional = await prisma.professional.findUnique({ where: { clerkUserId } });
-        if (!professional) return new Response(JSON.stringify({ count: 0 }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+        const clerkUserId = await verifyClerkToken(req).catch(() => null);
+        if (!clerkUserId)
+          return new Response(JSON.stringify({ count: 0 }), {
+            headers: { ...corsHeaders, "Content-Type": "application/json" },
+          });
+        const professional = await prisma.professional.findUnique({
+          where: { clerkUserId },
+        });
+        if (!professional)
+          return new Response(JSON.stringify({ count: 0 }), {
+            headers: { ...corsHeaders, "Content-Type": "application/json" },
+          });
         const count = await prisma.message.count({
           where: {
             read: false,
@@ -3491,21 +5768,47 @@ https://reportesreconquista.com`;
             Conversation: { professionalId: professional.id },
           },
         });
-        return new Response(JSON.stringify({ count }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+        return new Response(JSON.stringify({ count }), {
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
       }
 
       // GET /api/conversations/professional — conversaciones del profesional (requiere auth)
       if (path === "/api/conversations/professional" && method === "GET") {
-        const clerkUserId = await verifyClerkToken(req);
-        if (!clerkUserId) return new Response(JSON.stringify({ error: "No autorizado" }), { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } });
-        const professional = await prisma.professional.findUnique({ where: { clerkUserId } });
-        if (!professional) return new Response(JSON.stringify({ error: "Perfil no encontrado" }), { status: 404, headers: { ...corsHeaders, "Content-Type": "application/json" } });
-        const limit = Math.min(parseInt(url.searchParams.get("limit") || "20"), 50);
+        const clerkUserId = await verifyClerkToken(req).catch(() => null);
+        if (!clerkUserId)
+          return new Response(JSON.stringify({ error: "No autorizado" }), {
+            status: 401,
+            headers: { ...corsHeaders, "Content-Type": "application/json" },
+          });
+        const professional = await prisma.professional.findUnique({
+          where: { clerkUserId },
+        });
+        if (!professional)
+          return new Response(
+            JSON.stringify({ error: "Perfil no encontrado" }),
+            {
+              status: 404,
+              headers: { ...corsHeaders, "Content-Type": "application/json" },
+            },
+          );
+        const limit = Math.min(
+          parseInt(url.searchParams.get("limit") || "20"),
+          50,
+        );
         const cursor = url.searchParams.get("cursor") || undefined;
         const conversations = await prisma.conversation.findMany({
           where: { professionalId: professional.id },
           include: {
-            Professional: { select: { nombre: true, apellido: true, slug: true, foto: true, oficios: true } },
+            Professional: {
+              select: {
+                nombre: true,
+                apellido: true,
+                slug: true,
+                foto: true,
+                oficios: true,
+              },
+            },
             Message: { orderBy: { createdAt: "desc" }, take: 1 },
           },
           orderBy: { updatedAt: "desc" },
@@ -3515,26 +5818,50 @@ https://reportesreconquista.com`;
         const hasMore = conversations.length > limit;
         const items = hasMore ? conversations.slice(0, limit) : conversations;
         // Agregar conteo real de no leídos (mensajes del cliente no leídos por el profesional)
-        const withUnread = await Promise.all(items.map(async (c) => ({
-          ...c,
-          _unreadCount: await prisma.message.count({
-            where: { conversationId: c.id, senderType: "client", read: false },
+        const withUnread = await Promise.all(
+          items.map(async (c) => ({
+            ...c,
+            _unreadCount: await prisma.message.count({
+              where: {
+                conversationId: c.id,
+                senderType: "client",
+                read: false,
+              },
+            }),
+          })),
+        );
+        return new Response(
+          JSON.stringify({
+            items: withUnread,
+            hasMore,
+            nextCursor: hasMore ? items[items.length - 1].id : null,
           }),
-        })));
-        return new Response(JSON.stringify({ items: withUnread, hasMore, nextCursor: hasMore ? items[items.length - 1].id : null }), {
-          headers: { ...corsHeaders, "Content-Type": "application/json" },
-        });
+          {
+            headers: { ...corsHeaders, "Content-Type": "application/json" },
+          },
+        );
       }
 
       // GET /api/conversations/client/:token — conversaciones del cliente anónimo
       if (path.startsWith("/api/conversations/client/") && method === "GET") {
         const clientToken = path.split("/api/conversations/client/")[1];
-        const limit = Math.min(parseInt(url.searchParams.get("limit") || "20"), 50);
+        const limit = Math.min(
+          parseInt(url.searchParams.get("limit") || "20"),
+          50,
+        );
         const cursor = url.searchParams.get("cursor") || undefined;
         const conversations = await prisma.conversation.findMany({
           where: { clientToken },
           include: {
-            Professional: { select: { nombre: true, apellido: true, slug: true, foto: true, oficios: true } },
+            Professional: {
+              select: {
+                nombre: true,
+                apellido: true,
+                slug: true,
+                foto: true,
+                oficios: true,
+              },
+            },
             Message: { orderBy: { createdAt: "desc" }, take: 1 },
           },
           orderBy: { updatedAt: "desc" },
@@ -3544,42 +5871,72 @@ https://reportesreconquista.com`;
         const hasMore = conversations.length > limit;
         const items = hasMore ? conversations.slice(0, limit) : conversations;
         // Agregar conteo real de no leídos (mensajes del profesional no leídos por el cliente)
-        const withUnread = await Promise.all(items.map(async (c) => ({
-          ...c,
-          _unreadCount: await prisma.message.count({
-            where: { conversationId: c.id, senderType: "professional", read: false },
+        const withUnread = await Promise.all(
+          items.map(async (c) => ({
+            ...c,
+            _unreadCount: await prisma.message.count({
+              where: {
+                conversationId: c.id,
+                senderType: "professional",
+                read: false,
+              },
+            }),
+          })),
+        );
+        return new Response(
+          JSON.stringify({
+            items: withUnread,
+            hasMore,
+            nextCursor: hasMore ? items[items.length - 1].id : null,
           }),
-        })));
-        return new Response(JSON.stringify({ items: withUnread, hasMore, nextCursor: hasMore ? items[items.length - 1].id : null }), {
-          headers: { ...corsHeaders, "Content-Type": "application/json" },
-        });
+          {
+            headers: { ...corsHeaders, "Content-Type": "application/json" },
+          },
+        );
       }
 
       // DELETE /api/conversations/:id — eliminar conversación (cliente por clientToken o profesional por Clerk)
       if (path.match(/^\/api\/conversations\/[^/]+$/) && method === "DELETE") {
         const conversationId = path.split("/api/conversations/")[1];
-        const conversation = await prisma.conversation.findUnique({ where: { id: conversationId } });
-        if (!conversation) return new Response(JSON.stringify({ error: "No encontrada" }), { status: 404, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+        const conversation = await prisma.conversation.findUnique({
+          where: { id: conversationId },
+        });
+        if (!conversation)
+          return new Response(JSON.stringify({ error: "No encontrada" }), {
+            status: 404,
+            headers: { ...corsHeaders, "Content-Type": "application/json" },
+          });
 
         const clientToken = url.searchParams.get("clientToken");
-        const clerkUserId = await verifyClerkToken(req);
+        const clerkUserId = await verifyClerkToken(req).catch(() => null);
 
         // Cliente anónimo: clientToken UUID en query param
-        const isAnonClient = !!(clientToken && conversation.clientToken === clientToken);
+        const isAnonClient = !!(
+          clientToken && conversation.clientToken === clientToken
+        );
         // Cliente logueado: Clerk userId guardado como clientToken al crear la conv
-        const isClerkClient = !!(clerkUserId && conversation.clientToken === clerkUserId);
+        const isClerkClient = !!(
+          clerkUserId && conversation.clientToken === clerkUserId
+        );
         // Profesional dueño de la conversación
         const isProfessional = clerkUserId
-          ? !!(await prisma.professional.findFirst({ where: { clerkUserId, id: conversation.professionalId } }))
+          ? !!(await prisma.professional.findFirst({
+              where: { clerkUserId, id: conversation.professionalId },
+            }))
           : false;
 
         if (!isAnonClient && !isClerkClient && !isProfessional) {
-          return new Response(JSON.stringify({ error: "No autorizado" }), { status: 403, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+          return new Response(JSON.stringify({ error: "No autorizado" }), {
+            status: 403,
+            headers: { ...corsHeaders, "Content-Type": "application/json" },
+          });
         }
 
         await prisma.message.deleteMany({ where: { conversationId } });
         await prisma.conversation.delete({ where: { id: conversationId } });
-        return new Response(JSON.stringify({ ok: true }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+        return new Response(JSON.stringify({ ok: true }), {
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
       }
 
       // GET /api/conversations/:id — detalle con mensajes
@@ -3588,15 +5945,32 @@ https://reportesreconquista.com`;
         const conversation = await prisma.conversation.findUnique({
           where: { id: conversationId },
           include: {
-            Professional: { select: { nombre: true, apellido: true, slug: true, foto: true, oficios: true, clerkUserId: true, whatsapp: true } },
+            Professional: {
+              select: {
+                nombre: true,
+                apellido: true,
+                slug: true,
+                foto: true,
+                oficios: true,
+                clerkUserId: true,
+                whatsapp: true,
+              },
+            },
             Message: { orderBy: { createdAt: "asc" } },
           },
         });
-        if (!conversation) return new Response(JSON.stringify({ error: "No encontrada" }), { status: 404, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+        if (!conversation)
+          return new Response(JSON.stringify({ error: "No encontrada" }), {
+            status: 404,
+            headers: { ...corsHeaders, "Content-Type": "application/json" },
+          });
 
         // Marcar mensajes del cliente como leídos si el que abre es el profesional
-        const clerkUserId = await verifyClerkToken(req);
-        if (clerkUserId && clerkUserId === conversation.Professional.clerkUserId) {
+        const clerkUserId = await verifyClerkToken(req).catch(() => null);
+        if (
+          clerkUserId &&
+          clerkUserId === conversation.Professional.clerkUserId
+        ) {
           await prisma.message.updateMany({
             where: { conversationId, senderType: "client", read: false },
             data: { read: true },
@@ -3609,20 +5983,32 @@ https://reportesreconquista.com`;
       }
 
       // PUT /api/conversations/:id/status — cambiar estado
-      if (path.match(/^\/api\/conversations\/[^/]+\/status$/) && method === "PUT") {
+      if (
+        path.match(/^\/api\/conversations\/[^/]+\/status$/) &&
+        method === "PUT"
+      ) {
         const conversationId = path.split("/")[3];
         const body = await req.json();
         const { status, clientToken } = body;
-        const clerkUserId = await verifyClerkToken(req);
+        const clerkUserId = await verifyClerkToken(req).catch(() => null);
         const conversation = await prisma.conversation.findUnique({
           where: { id: conversationId },
           include: { professional: true },
         });
-        if (!conversation) return new Response(JSON.stringify({ error: "No encontrada" }), { status: 404, headers: { ...corsHeaders, "Content-Type": "application/json" } });
-        const isProfessional = clerkUserId && conversation.professional.clerkUserId === clerkUserId;
-        const isClient = clientToken && conversation.clientToken === clientToken;
+        if (!conversation)
+          return new Response(JSON.stringify({ error: "No encontrada" }), {
+            status: 404,
+            headers: { ...corsHeaders, "Content-Type": "application/json" },
+          });
+        const isProfessional =
+          clerkUserId && conversation.professional.clerkUserId === clerkUserId;
+        const isClient =
+          clientToken && conversation.clientToken === clientToken;
         if (!isProfessional && !isClient) {
-          return new Response(JSON.stringify({ error: "No autorizado" }), { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+          return new Response(JSON.stringify({ error: "No autorizado" }), {
+            status: 401,
+            headers: { ...corsHeaders, "Content-Type": "application/json" },
+          });
         }
         const updated = await prisma.conversation.update({
           where: { id: conversationId },
@@ -3644,29 +6030,62 @@ https://reportesreconquista.com`;
       // POST /api/ratings — calificar (cliente o profesional)
       if (path === "/api/ratings" && method === "POST") {
         const body = await req.json();
-        const { conversationId, clientToken, scoreByClient, commentByClient, scoreByPro, commentByPro } = body;
-        if (!conversationId) return new Response(JSON.stringify({ error: "Falta conversationId" }), { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+        const {
+          conversationId,
+          clientToken,
+          scoreByClient,
+          commentByClient,
+          scoreByPro,
+          commentByPro,
+        } = body;
+        if (!conversationId)
+          return new Response(
+            JSON.stringify({ error: "Falta conversationId" }),
+            {
+              status: 400,
+              headers: { ...corsHeaders, "Content-Type": "application/json" },
+            },
+          );
         const conversation = await prisma.conversation.findUnique({
           where: { id: conversationId },
           include: { professional: true },
         });
         if (!conversation || conversation.status !== "completed") {
-          return new Response(JSON.stringify({ error: "La conversación debe estar completada para calificar" }), { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+          return new Response(
+            JSON.stringify({
+              error: "La conversación debe estar completada para calificar",
+            }),
+            {
+              status: 400,
+              headers: { ...corsHeaders, "Content-Type": "application/json" },
+            },
+          );
         }
-        const clerkUserId = await verifyClerkToken(req);
-        const isProfessional = clerkUserId && conversation.professional.clerkUserId === clerkUserId;
-        const isClient = clientToken && conversation.clientToken === clientToken;
+        const clerkUserId = await verifyClerkToken(req).catch(() => null);
+        const isProfessional =
+          clerkUserId && conversation.professional.clerkUserId === clerkUserId;
+        const isClient =
+          clientToken && conversation.clientToken === clientToken;
         if (!isProfessional && !isClient) {
-          return new Response(JSON.stringify({ error: "No autorizado" }), { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+          return new Response(JSON.stringify({ error: "No autorizado" }), {
+            status: 401,
+            headers: { ...corsHeaders, "Content-Type": "application/json" },
+          });
         }
-        const existing = await prisma.rating.findUnique({ where: { conversationId } });
+        const existing = await prisma.rating.findUnique({
+          where: { conversationId },
+        });
         let rating;
         if (existing) {
           rating = await prisma.rating.update({
             where: { conversationId },
             data: {
-              ...(isClient && scoreByClient != null ? { scoreByClient, commentByClient } : {}),
-              ...(isProfessional && scoreByPro != null ? { scoreByPro, commentByPro } : {}),
+              ...(isClient && scoreByClient != null
+                ? { scoreByClient, commentByClient }
+                : {}),
+              ...(isProfessional && scoreByPro != null
+                ? { scoreByPro, commentByPro }
+                : {}),
             },
           });
         } else {
@@ -3675,8 +6094,12 @@ https://reportesreconquista.com`;
               conversationId,
               professionalId: conversation.professionalId,
               clientToken: conversation.clientToken,
-              ...(isClient && scoreByClient != null ? { scoreByClient, commentByClient } : {}),
-              ...(isProfessional && scoreByPro != null ? { scoreByPro, commentByPro } : {}),
+              ...(isClient && scoreByClient != null
+                ? { scoreByClient, commentByClient }
+                : {}),
+              ...(isProfessional && scoreByPro != null
+                ? { scoreByPro, commentByPro }
+                : {}),
             },
           });
         }
@@ -3703,8 +6126,14 @@ https://reportesreconquista.com`;
             ...(categoria ? { categoria } : {}),
           },
           select: {
-            id: true, titulo: true, descripcion: true, precio: true,
-            categoria: true, barrio: true, fotos: true, createdAt: true,
+            id: true,
+            titulo: true,
+            descripcion: true,
+            precio: true,
+            categoria: true,
+            barrio: true,
+            fotos: true,
+            createdAt: true,
           },
           orderBy: { createdAt: "desc" },
         });
@@ -3715,21 +6144,41 @@ https://reportesreconquista.com`;
 
       // POST /api/clasificados — crear aviso
       if (path === "/api/clasificados" && method === "POST") {
-        const contentLength = parseInt(req.headers.get("content-length") || "0");
+        const contentLength = parseInt(
+          req.headers.get("content-length") || "0",
+        );
         if (contentLength > 10 * 1024 * 1024) {
-          return new Response(JSON.stringify({ error: "Payload demasiado grande" }), { status: 413, headers: corsHeaders });
+          return new Response(
+            JSON.stringify({ error: "Payload demasiado grande" }),
+            { status: 413, headers: corsHeaders },
+          );
         }
         const body = await req.json();
         body.titulo = sanitizeText(body.titulo, 100);
         body.descripcion = sanitizeText(body.descripcion, 1000);
-        const { titulo, descripcion, precio, categoria, barrio, clientToken } = body;
+        const { titulo, descripcion, precio, categoria, barrio, clientToken } =
+          body;
         if (!titulo || !descripcion || !categoria || !barrio || !clientToken) {
-          return new Response(JSON.stringify({ error: "Faltan campos obligatorios" }), { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+          return new Response(
+            JSON.stringify({ error: "Faltan campos obligatorios" }),
+            {
+              status: 400,
+              headers: { ...corsHeaders, "Content-Type": "application/json" },
+            },
+          );
         }
         const expiresAt = new Date();
         expiresAt.setDate(expiresAt.getDate() + 30);
         const clasificado = await prisma.clasificado.create({
-          data: { titulo, descripcion, precio, categoria, barrio, clientToken, expiresAt },
+          data: {
+            titulo,
+            descripcion,
+            precio,
+            categoria,
+            barrio,
+            clientToken,
+            expiresAt,
+          },
         });
         return new Response(JSON.stringify(clasificado), {
           status: 201,
@@ -3744,9 +6193,15 @@ https://reportesreconquista.com`;
         const { clientToken, ...data } = body;
         const existing = await prisma.clasificado.findUnique({ where: { id } });
         if (!existing || existing.clientToken !== clientToken) {
-          return new Response(JSON.stringify({ error: "No autorizado" }), { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+          return new Response(JSON.stringify({ error: "No autorizado" }), {
+            status: 401,
+            headers: { ...corsHeaders, "Content-Type": "application/json" },
+          });
         }
-        const updated = await prisma.clasificado.update({ where: { id }, data });
+        const updated = await prisma.clasificado.update({
+          where: { id },
+          data,
+        });
         return new Response(JSON.stringify(updated), {
           headers: { ...corsHeaders, "Content-Type": "application/json" },
         });
@@ -3758,7 +6213,10 @@ https://reportesreconquista.com`;
         const clientToken = url.searchParams.get("clientToken");
         const existing = await prisma.clasificado.findUnique({ where: { id } });
         if (!existing || existing.clientToken !== clientToken) {
-          return new Response(JSON.stringify({ error: "No autorizado" }), { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+          return new Response(JSON.stringify({ error: "No autorizado" }), {
+            status: 401,
+            headers: { ...corsHeaders, "Content-Type": "application/json" },
+          });
         }
         await prisma.clasificado.delete({ where: { id } });
         return new Response(JSON.stringify({ ok: true }), {
@@ -3786,7 +6244,11 @@ https://reportesreconquista.com`;
 
   websocket: {
     async open(ws) {
-      const { conversationId } = ws.data as { conversationId: string; senderType: string; token: string };
+      const { conversationId } = ws.data as {
+        conversationId: string;
+        senderType: string;
+        token: string;
+      };
       ws.subscribe(`conversation:${conversationId}`);
 
       // Marcar mensajes del otro lado como leídos al abrir
@@ -3805,7 +6267,10 @@ https://reportesreconquista.com`;
     },
 
     async message(ws, raw) {
-      const { conversationId, senderType } = ws.data as { conversationId: string; senderType: string };
+      const { conversationId, senderType } = ws.data as {
+        conversationId: string;
+        senderType: string;
+      };
 
       let parsed: { content?: string; type?: string };
       try {
@@ -3871,52 +6336,105 @@ https://reportesreconquista.com`;
               select: { clerkUserId: true },
             });
             if (pro?.clerkUserId) {
-              const subs = await prisma.pushSubscription.findMany({ where: { clerkUserId: pro.clerkUserId } });
-              console.log(`[push] sending to ${subs.length} subscriptions for ${pro.clerkUserId}`);
-              const preview = content.trim().length > 60 ? content.trim().slice(0, 60) + "…" : content.trim();
-              const results = await Promise.allSettled(subs.map(sub =>
-                webPush.sendNotification(
-                  { endpoint: sub.endpoint, keys: { p256dh: sub.p256dh, auth: sub.auth } },
-                  JSON.stringify({ title: "Nuevo mensaje", body: preview, url: `/chat/${conversationId}`, icon: "/icon-192x192.png", tag: `chat-${conversationId}` }),
-                PUSH_OPTIONS,
-                ).catch(async (err: any) => {
-                  console.error("[push] sendNotification error:", err.statusCode, err.body ?? err.message);
-                  if (err.statusCode === 410 || err.statusCode === 404) {
-                    await prisma.pushSubscription.delete({ where: { endpoint: sub.endpoint } }).catch(() => {});
-                  }
-                })
-              ));
-              console.log("[push] results:", results.map(r => r.status));
+              const subs = await prisma.pushSubscription.findMany({
+                where: { clerkUserId: pro.clerkUserId },
+              });
+              console.log(
+                `[push] sending to ${subs.length} subscriptions for ${pro.clerkUserId}`,
+              );
+              const preview =
+                content.trim().length > 60
+                  ? content.trim().slice(0, 60) + "…"
+                  : content.trim();
+              const results = await Promise.allSettled(
+                subs.map((sub) =>
+                  webPush
+                    .sendNotification(
+                      {
+                        endpoint: sub.endpoint,
+                        keys: { p256dh: sub.p256dh, auth: sub.auth },
+                      },
+                      JSON.stringify({
+                        title: "Nuevo mensaje",
+                        body: preview,
+                        url: `/chat/${conversationId}`,
+                        icon: "/icon-192x192.png",
+                        tag: `chat-${conversationId}`,
+                      }),
+                      PUSH_OPTIONS,
+                    )
+                    .catch(async (err: any) => {
+                      console.error(
+                        "[push] sendNotification error:",
+                        err.statusCode,
+                        err.body ?? err.message,
+                      );
+                      if (err.statusCode === 410 || err.statusCode === 404) {
+                        await prisma.pushSubscription
+                          .delete({ where: { endpoint: sub.endpoint } })
+                          .catch(() => {});
+                      }
+                    }),
+                ),
+              );
+              console.log(
+                "[push] results:",
+                results.map((r) => r.status),
+              );
             }
-          } catch (e) { console.error("[push] unexpected error:", e); }
+          } catch (e) {
+            console.error("[push] unexpected error:", e);
+          }
         }
 
         // Push al cliente (anónimo o logueado) cuando el profesional responde
         if (senderType === "professional" && conv?.clientToken) {
           try {
             const subs = await prisma.pushSubscription.findMany({
-              where: { OR: [{ clientToken: conv.clientToken }, { clerkUserId: conv.clientToken }] },
+              where: {
+                OR: [
+                  { clientToken: conv.clientToken },
+                  { clerkUserId: conv.clientToken },
+                ],
+              },
             });
             if (subs.length > 0) {
-              const preview = content.trim().length > 60 ? content.trim().slice(0, 60) + "…" : content.trim();
-              await Promise.allSettled(subs.map(async (sub) => {
-                try {
-                  await webPush.sendNotification(
-                    { endpoint: sub.endpoint, keys: { p256dh: sub.p256dh, auth: sub.auth } },
-                    JSON.stringify({ title: "Te respondieron", body: preview, url: `/chat/${conversationId}`, icon: "/icon-192x192.png", tag: `chat-${conversationId}` }),
-                    PUSH_OPTIONS,
-                  );
-                } catch (err: any) {
-                  if (err.statusCode === 410 || err.statusCode === 404) {
-                    await prisma.pushSubscription.delete({ where: { endpoint: sub.endpoint } }).catch(() => {});
+              const preview =
+                content.trim().length > 60
+                  ? content.trim().slice(0, 60) + "…"
+                  : content.trim();
+              await Promise.allSettled(
+                subs.map(async (sub) => {
+                  try {
+                    await webPush.sendNotification(
+                      {
+                        endpoint: sub.endpoint,
+                        keys: { p256dh: sub.p256dh, auth: sub.auth },
+                      },
+                      JSON.stringify({
+                        title: "Te respondieron",
+                        body: preview,
+                        url: `/chat/${conversationId}`,
+                        icon: "/icon-192x192.png",
+                        tag: `chat-${conversationId}`,
+                      }),
+                      PUSH_OPTIONS,
+                    );
+                  } catch (err: any) {
+                    if (err.statusCode === 410 || err.statusCode === 404) {
+                      await prisma.pushSubscription
+                        .delete({ where: { endpoint: sub.endpoint } })
+                        .catch(() => {});
+                    }
                   }
-                }
-              }));
+                }),
+              );
             }
-          } catch (e) { console.error("[push/client-reply] unexpected error:", e); }
+          } catch (e) {
+            console.error("[push/client-reply] unexpected error:", e);
+          }
         }
       }
-
     },
 
     close(ws) {
