@@ -2098,7 +2098,7 @@ El mensaje debe:
 - Sonar escrito por una persona real, no un bot ni una empresa
 - Presentarme como el creador de la plataforma local (no "emprendedor", no "empresa")
 - Mencionar 1 o 2 beneficios concretos relevantes para este rubro: ${rubro || "comercio local"}
-- Incluir el link: reportesreconquista.com
+- En alguna oración incluir literalmente la URL: reportesreconquista.com (OBLIGATORIO, no la omitas)
 - Proponer pasar por el local un momento para mostrárselo en persona
 - Tener entre 4 y 6 oraciones, ni muy corto ni muy largo
 - Terminar con una pregunta concreta para que responda (ej: "¿te viene bien esta semana?")
@@ -2120,7 +2120,10 @@ El mensaje debe:
         });
 
         const groqData = await groqRes.json() as { choices: { message: { content: string } }[] };
-        const mensaje = groqData.choices?.[0]?.message?.content?.trim() ?? "";
+        let mensaje = groqData.choices?.[0]?.message?.content?.trim() ?? "";
+        if (mensaje && !mensaje.includes("reportesreconquista.com")) {
+          mensaje += "\n\nreportesreconquista.com";
+        }
         return new Response(JSON.stringify({ mensaje }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
       }
 
