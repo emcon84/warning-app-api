@@ -2081,48 +2081,38 @@ La descripción debe:
         const { nombre, rubro, contacto } = await req.json() as { nombre: string; rubro?: string; contacto?: string };
         if (!nombre?.trim()) return new Response(JSON.stringify({ error: "Falta el nombre del comercio" }), { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } });
 
-        const prompt = `Escribí un mensaje corto y natural para enviarle al dueño de un comercio local llamado "${nombre}"${rubro ? ` (rubro: ${rubro})` : ""} en Reconquista, Santa Fe, Argentina.${contacto ? ` Dirigirte a ${contacto}.` : ""}
-
-Contexto sobre la plataforma:
-Reportes Reconquista es una app local gratuita de Reconquista. Tiene:
-- Directorio de comercios con perfil digital, fotos, catálogo y botón de WhatsApp directo
-- Ofertas y promociones para publicar descuentos
-- Directorio de profesionales de oficio
-- Cartel con QR imprimible para poner en la vidriera
-Todo gratis, sin publicidad.
-
-ESTRUCTURA OBLIGATORIA del mensaje:
-1. Primera oración: presentarse como Reportes Reconquista e incluir la URL reportesreconquista.com. Ejemplo: "Te escribimos desde Reportes Reconquista (reportesreconquista.com), la app gratuita de Reconquista."
-2. Segunda/tercera oración: mencionar 1 o 2 beneficios concretos para el rubro "${rubro || "comercio local"}" — sé específico, no genérico.
-3. Última oración: proponer pasar por el local y terminar con una pregunta concreta (ej: "¿te viene bien esta semana?").
-
-Reglas de estilo:
-- Español rioplatense casual ("vos", "dale", "te cuento", "mirá")
-- No inventar nombres de personas, no decir "me llamo", no hablar en primera persona singular
-- Hablar en nombre de la plataforma ("te escribimos", "somos", "desde Reportes Reconquista")
-- Entre 3 y 5 oraciones en total
-- Sin emojis
-- Devolvé SOLO el mensaje, sin comillas, sin explicaciones`;
-
-        const groqRes = await fetch("https://api.groq.com/openai/v1/chat/completions", {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            "Authorization": `Bearer ${process.env.GROQ_API_KEY}`,
-          },
-          body: JSON.stringify({
-            model: "llama-3.1-8b-instant",
-            max_tokens: 300,
-            temperature: 0.9,
-            messages: [{ role: "user", content: prompt }],
-          }),
-        });
-
-        const groqData = await groqRes.json() as { choices: { message: { content: string } }[] };
-        let mensaje = groqData.choices?.[0]?.message?.content?.trim() ?? "";
-        if (mensaje && !mensaje.includes("reportesreconquista.com")) {
-          mensaje += "\n\nreportesreconquista.com";
+        // La IA solo genera la línea personalizada del rubro (1 oración).
+        // El resto del mensaje es un template fijo para garantizar calidad y consistencia.
+        let lineaPersonalizada = "";
+        if (rubro) {
+          const promptRubro = `En una sola oración corta y casual (español rioplatense), explicá cómo el rubro "${rubro}" puede beneficiarse de tener un perfil digital gratuito con catálogo, fotos y botón de WhatsApp en una app local. Empezá con "Es una herramienta para que puedan". Devolvé SOLO esa oración, sin comillas.`;
+          const groqRes = await fetch("https://api.groq.com/openai/v1/chat/completions", {
+            method: "POST",
+            headers: { "Content-Type": "application/json", "Authorization": `Bearer ${process.env.GROQ_API_KEY}` },
+            body: JSON.stringify({
+              model: "llama-3.1-8b-instant",
+              max_tokens: 80,
+              temperature: 0.7,
+              messages: [{ role: "user", content: promptRubro }],
+            }),
+          });
+          const groqData = await groqRes.json() as { choices: { message: { content: string } }[] };
+          lineaPersonalizada = groqData.choices?.[0]?.message?.content?.trim() ?? "";
         }
+
+        const saludo = contacto ? `Hola ${contacto}!` : "Hola, ¿cómo estás?";
+        const lineaRubro = lineaPersonalizada || `Es una herramienta para que puedan llegar a más clientes y mostrar su catálogo de ${rubro || "productos y servicios"} a usuarios potenciales.`;
+
+        const mensaje = `${saludo} Soy el creador de reportesreconquista.com, la app gratuita de Reconquista.
+
+${lineaRubro}
+
+Nos gustaría pasar por el local para charlar cómo pueden aprovechar estas funcionalidades. El objetivo de Reportes Reconquista es posicionarnos como la app local líder de la ciudad. Si bien estamos empezando, en las próximas semanas vamos a tener apoyo de empresas como Elías Yapur y otras para dar a conocer la iniciativa, lo cual va a generar tráfico y visitas. También les permite publicar ofertas y descuentos exclusivos en nuestro Directorio de Comercios.
+
+¿Te viene bien que esta semana te visite?
+
+https://reportesreconquista.com`;
+
         return new Response(JSON.stringify({ mensaje }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
       }
 
