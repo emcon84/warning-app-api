@@ -2071,6 +2071,51 @@ La descripción debe:
         return new Response(JSON.stringify({ descripcion: text }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
       }
 
+      // POST /api/ai/generate-outreach — genera mensaje de WhatsApp para captar comercios (admin only)
+      if (path === "/api/ai/generate-outreach" && method === "POST") {
+        const clerkUserId = await verifyClerkToken(req);
+        if (!clerkUserId) return new Response(JSON.stringify({ error: "No autorizado" }), { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+        const admins = (process.env.ADMIN_CLERK_IDS || "").split(",").map(s => s.trim()).filter(Boolean);
+        if (!admins.includes(clerkUserId)) return new Response(JSON.stringify({ error: "Acceso denegado" }), { status: 403, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+
+        const { nombre, rubro, contacto } = await req.json() as { nombre: string; rubro?: string; contacto?: string };
+        if (!nombre?.trim()) return new Response(JSON.stringify({ error: "Falta el nombre del comercio" }), { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+
+        const prompt = `Escribí un mensaje de WhatsApp para enviarle al dueño de un comercio local llamado "${nombre}"${rubro ? ` (rubro: ${rubro})` : ""} en Reconquista, Santa Fe, Argentina.
+${contacto ? `El nombre del contacto o dueño es: ${contacto}.` : ""}
+
+El objetivo del mensaje es presentarme y agendar una visita presencial al local para mostrarle la plataforma Reportes Reconquista, donde puede crear gratis su vitrina digital con catálogo, WhatsApp y un cartel con QR para poner en la vidriera.
+
+El mensaje debe:
+- Estar en español rioplatense casual ("vos", "dale", "te cuento")
+- Sonar como escrito a mano por una persona real, no por un bot
+- Presentarme brevemente como el creador de la plataforma local
+- Mencionar el beneficio concreto: tener su perfil digital + cartel con QR gratis
+- Proponer una visita breve al local ("te paso por el local un momento")
+- Ser corto (máximo 5 oraciones)
+- Terminar con una pregunta o propuesta concreta para que responda
+- NO incluir emojis en exceso, máximo 1 o 2
+- Devolvé SOLO el mensaje, sin explicaciones ni comillas`;
+
+        const groqRes = await fetch("https://api.groq.com/openai/v1/chat/completions", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "Authorization": `Bearer ${process.env.GROQ_API_KEY}`,
+          },
+          body: JSON.stringify({
+            model: "llama-3.1-8b-instant",
+            max_tokens: 300,
+            temperature: 0.9,
+            messages: [{ role: "user", content: prompt }],
+          }),
+        });
+
+        const groqData = await groqRes.json() as { choices: { message: { content: string } }[] };
+        const mensaje = groqData.choices?.[0]?.message?.content?.trim() ?? "";
+        return new Response(JSON.stringify({ mensaje }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      }
+
       // ═══════════════════════════════════════════════════════════════════
       // COMERCIOS
       // ═══════════════════════════════════════════════════════════════════
