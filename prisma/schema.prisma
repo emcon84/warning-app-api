@@ -157,7 +157,7 @@ model PageView {
 
 model Professional {
   id           String         @id @default(cuid())
-  clerkUserId  String         @unique
+  clerkUserId  String?        @unique
   nombre       String
   apellido     String
   slug         String         @unique

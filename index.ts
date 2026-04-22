@@ -3251,21 +3251,22 @@ https://reportesreconquista.com`;
           },
         });
         if (!professional) return new Response(JSON.stringify({ error: "No encontrado" }), { status: 404, headers: { ...corsHeaders, "Content-Type": "application/json" } });
-        const { telefono, whatsapp, clerkUserId, ...publicData } = professional;
+        const { telefono, clerkUserId, ...publicData } = professional;
         return new Response(JSON.stringify(publicData), {
           headers: { ...corsHeaders, "Content-Type": "application/json" },
         });
       }
 
-      // POST /api/professionals — crear perfil (requiere auth)
+      // POST /api/professionals — crear perfil (auth opcional, registro anónimo permitido)
       if (path === "/api/professionals" && method === "POST") {
         if (!checkStrictRateLimit(req)) {
           return new Response(JSON.stringify({ error: "Demasiadas solicitudes. Intentá en un momento." }), { status: 429, headers: { ...corsHeaders, "Content-Type": "application/json", "Retry-After": "60" } });
         }
         const clerkUserId = await verifyClerkToken(req);
-        if (!clerkUserId) return new Response(JSON.stringify({ error: "No autorizado" }), { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } });
-        const existing = await prisma.professional.findUnique({ where: { clerkUserId } });
-        if (existing) return new Response(JSON.stringify({ error: "Ya tenés un perfil creado" }), { status: 409, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+        if (clerkUserId) {
+          const existing = await prisma.professional.findUnique({ where: { clerkUserId } });
+          if (existing) return new Response(JSON.stringify({ error: "Ya tenés un perfil creado" }), { status: 409, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+        }
         const contentLength = parseInt(req.headers.get("content-length") || "0");
         if (contentLength > 10 * 1024 * 1024) {
           return new Response(JSON.stringify({ error: "Payload demasiado grande" }), { status: 413, headers: corsHeaders });
@@ -3277,12 +3278,12 @@ https://reportesreconquista.com`;
         body.barrio = sanitizeText(body.barrio, 100);
         const { nombre, apellido, tipo, oficios, descripcion, barrio, telefono, whatsapp } = body;
         const safeTipo = tipo === "profesion" || tipo === "oficio" ? tipo : null;
-        if (!nombre || !apellido || !oficios?.length || !barrio) {
+        if (!nombre || !apellido || !oficios?.length || !barrio || !whatsapp) {
           return new Response(JSON.stringify({ error: "Faltan campos obligatorios" }), { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } });
         }
         const slug = generateSlug(nombre, apellido, oficios);
         const professional = await prisma.professional.create({
-          data: { clerkUserId, nombre, apellido, slug, tipo: safeTipo, oficios, descripcion, barrio, telefono, whatsapp, updatedAt: new Date() },
+          data: { clerkUserId: clerkUserId || null, nombre, apellido, slug, tipo: safeTipo, oficios, descripcion, barrio, telefono, whatsapp, updatedAt: new Date() },
         });
         return new Response(JSON.stringify(professional), {
           status: 201,
