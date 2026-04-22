@@ -2100,16 +2100,16 @@ La descripción debe:
           lineaPersonalizada = groqData.choices?.[0]?.message?.content?.trim() ?? "";
         }
 
-        const saludo = contacto ? `Hola ${contacto}!` : "Hola, ¿cómo estás?";
-        const lineaRubro = lineaPersonalizada || `Es una herramienta para que puedan llegar a más clientes y mostrar su catálogo de ${rubro || "productos y servicios"} a usuarios potenciales.`;
+        const saludo = contacto ? `Hola ${contacto}!` : "Hola!";
+        const lineaRubro = lineaPersonalizada || `Es una herramienta para que los vecinos de Reconquista que buscan ${rubro ? `un ${rubro.toLowerCase()}` : "un comercio local"} te encuentren a vos: perfil con fotos, catálogo y WhatsApp directo.`;
 
         const mensaje = `${saludo} Soy el creador de reportesreconquista.com, la app gratuita de Reconquista.
 
-${lineaRubro}
+${lineaRubro} 100% gratis.
 
-Nos gustaría pasar por el local para charlar cómo pueden aprovechar estas funcionalidades. El objetivo de Reportes Reconquista es posicionarnos como la app local líder de la ciudad. Si bien estamos empezando, en las próximas semanas vamos a tener apoyo de empresas como Elías Yapur y otras para dar a conocer la iniciativa, lo cual va a generar tráfico y visitas. También les permite publicar ofertas y descuentos exclusivos en nuestro Directorio de Comercios.
+En las próximas semanas vamos a tener el apoyo de empresas como Elías Yapur y otras para darle visibilidad a la plataforma. Los comercios que se registren ahora van a quedar como Comercios Fundadores, con un emblema especial y posicionados primeros en el listado, antes de que eso pase.
 
-¿Te viene bien que esta semana te visite?
+¿Te viene bien que esta semana pase por el local a mostrártela en persona?
 
 https://reportesreconquista.com`;
 
