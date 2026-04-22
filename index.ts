@@ -549,7 +549,7 @@ const server = Bun.serve({
             const ext = photo.name.split(".").pop() || "jpg";
             const filename = `${Date.now()}-${Math.random().toString(36).substr(2, 9)}.${ext}`;
             const filePath = join(uploadsDir, filename);
-            await Bun.write(filePath, photo);
+            await Bun.write(filePath, await photo.arrayBuffer());
             photoPaths.push(`/uploads/${filename}`);
           }
         } else {
@@ -2407,7 +2407,10 @@ out 1;`;
             const uploadsDir = process.env.UPLOADS_DIR || "./uploads";
             const ext = photoFile.name.split(".").pop() || "jpg";
             const filename = `offer_${crypto.randomUUID()}.${ext}`;
-            await Bun.write(`${uploadsDir}/${filename}`, photoFile);
+            await Bun.write(
+              `${uploadsDir}/${filename}`,
+              await photoFile.arrayBuffer(),
+            );
             photoPath = `/uploads/${filename}`;
           } else {
             photoPath = undefined; // no cambiar
@@ -5375,20 +5378,18 @@ https://reportesreconquista.com`;
         body.nombre = sanitizeText(body.nombre, 60);
         body.apellido = sanitizeText(body.apellido, 60);
         body.descripcion = sanitizeText(body.descripcion, 500);
-        body.barrio = sanitizeText(body.barrio, 100);
         const {
           nombre,
           apellido,
           tipo,
           oficios,
           descripcion,
-          barrio,
           telefono,
           whatsapp,
         } = body;
         const safeTipo =
           tipo === "profesion" || tipo === "oficio" ? tipo : null;
-        if (!nombre || !apellido || !oficios?.length || !barrio || !whatsapp) {
+        if (!nombre || !apellido || !oficios?.length || !whatsapp) {
           return new Response(
             JSON.stringify({ error: "Faltan campos obligatorios" }),
             {
@@ -5407,7 +5408,6 @@ https://reportesreconquista.com`;
             tipo: safeTipo,
             oficios,
             descripcion,
-            barrio,
             telefono,
             whatsapp,
             updatedAt: new Date(),
@@ -5486,7 +5486,7 @@ https://reportesreconquista.com`;
         const ext = photoFile.name.split(".").pop() || "jpg";
         const filename = `professional_${crypto.randomUUID()}.${ext}`;
         const filePath = join(uploadsDir, filename);
-        await Bun.write(filePath, photoFile);
+        await Bun.write(filePath, await photoFile.arrayBuffer());
         const fotoUrl = `/uploads/${filename}`;
         const professional = await prisma.professional.update({
           where: { clerkUserId },
@@ -5993,7 +5993,7 @@ https://reportesreconquista.com`;
         const clerkUserId = await verifyClerkToken(req).catch(() => null);
         const conversation = await prisma.conversation.findUnique({
           where: { id: conversationId },
-          include: { professional: true },
+          include: { Professional: true },
         });
         if (!conversation)
           return new Response(JSON.stringify({ error: "No encontrada" }), {
@@ -6001,7 +6001,7 @@ https://reportesreconquista.com`;
             headers: { ...corsHeaders, "Content-Type": "application/json" },
           });
         const isProfessional =
-          clerkUserId && conversation.professional.clerkUserId === clerkUserId;
+          clerkUserId && conversation.Professional.clerkUserId === clerkUserId;
         const isClient =
           clientToken && conversation.clientToken === clientToken;
         if (!isProfessional && !isClient) {
@@ -6048,7 +6048,7 @@ https://reportesreconquista.com`;
           );
         const conversation = await prisma.conversation.findUnique({
           where: { id: conversationId },
-          include: { professional: true },
+          include: { Professional: true },
         });
         if (!conversation || conversation.status !== "completed") {
           return new Response(
@@ -6063,7 +6063,7 @@ https://reportesreconquista.com`;
         }
         const clerkUserId = await verifyClerkToken(req).catch(() => null);
         const isProfessional =
-          clerkUserId && conversation.professional.clerkUserId === clerkUserId;
+          clerkUserId && conversation.Professional.clerkUserId === clerkUserId;
         const isClient =
           clientToken && conversation.clientToken === clientToken;
         if (!isProfessional && !isClient) {

@@ -164,7 +164,7 @@ model Professional {
   tipo         String?
   oficios      String[]
   descripcion  String?
-  barrio       String
+  barrio       String?
   telefono     String?
   whatsapp     String?
   foto         String?
