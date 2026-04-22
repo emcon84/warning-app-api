@@ -299,6 +299,7 @@ model Comercio {
   fotos       String[]        @default([])
   activo      Boolean         @default(true)
   isPremium   Boolean         @default(false)
+  isFounder   Boolean         @default(false)
   createdAt   DateTime        @default(now())
   updatedAt   DateTime        @updatedAt
   offers      ComercioOffer[]

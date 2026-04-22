@@ -2166,8 +2166,10 @@ https://reportesreconquista.com`;
           await Bun.write(join(uploadsDir, filename), await f.arrayBuffer());
           fotos.push("/uploads/" + filename);
         }
+        const totalComercies = await prisma.comercio.count();
+        const isFounder = totalComercies < 20;
         const comercio = await prisma.comercio.create({
-          data: { clerkUserId, nombre, rubro, slug: slugBase, descripcion, direccion, barrio, whatsapp, telefono, horario, foto: fotoUrl, fotos },
+          data: { clerkUserId, nombre, rubro, slug: slugBase, descripcion, direccion, barrio, whatsapp, telefono, horario, foto: fotoUrl, fotos, isFounder },
         });
         return new Response(JSON.stringify(comercio), { status: 201, headers: { ...corsHeaders, "Content-Type": "application/json" } });
       }
@@ -2182,8 +2184,8 @@ https://reportesreconquista.com`;
             ...(barrio ? { barrio: { contains: barrio, mode: "insensitive" } } : {}),
             ...(rubro ? { rubro: { contains: rubro, mode: "insensitive" } } : {}),
           },
-          select: { id: true, nombre: true, rubro: true, slug: true, barrio: true, foto: true, logo: true, descripcion: true, activo: true, isPremium: true, createdAt: true },
-          orderBy: [{ isPremium: "desc" }, { createdAt: "desc" }],
+          select: { id: true, nombre: true, rubro: true, slug: true, barrio: true, foto: true, logo: true, descripcion: true, activo: true, isPremium: true, isFounder: true, createdAt: true },
+          orderBy: [{ isPremium: "desc" }, { isFounder: "desc" }, { createdAt: "asc" }],
         });
         return new Response(JSON.stringify(comercios), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
       }
@@ -2194,7 +2196,7 @@ https://reportesreconquista.com`;
         if (!clerkUserId) return new Response(JSON.stringify({ error: "No autorizado" }), { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } });
         const comercio = await prisma.comercio.findUnique({
           where: { clerkUserId },
-          select: { id: true, nombre: true, rubro: true, slug: true, descripcion: true, direccion: true, barrio: true, whatsapp: true, telefono: true, horario: true, foto: true, fotos: true, logo: true, activo: true, isPremium: true, createdAt: true, updatedAt: true, offers: { orderBy: { createdAt: "desc" } }, productos: { orderBy: { createdAt: "desc" } } },
+          select: { id: true, nombre: true, rubro: true, slug: true, descripcion: true, direccion: true, barrio: true, whatsapp: true, telefono: true, horario: true, foto: true, fotos: true, logo: true, activo: true, isPremium: true, isFounder: true, createdAt: true, updatedAt: true, offers: { orderBy: { createdAt: "desc" } }, productos: { orderBy: { createdAt: "desc" } } },
         });
         if (!comercio) return new Response(JSON.stringify({ error: "No tenés un comercio registrado" }), { status: 404, headers: { ...corsHeaders, "Content-Type": "application/json" } });
         return new Response(JSON.stringify(comercio), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
@@ -2461,7 +2463,7 @@ https://reportesreconquista.com`;
         const slug = path.split("/api/comercios/")[1];
         const comercio = await prisma.comercio.findUnique({
           where: { slug },
-          select: { id: true, nombre: true, rubro: true, slug: true, barrio: true, descripcion: true, direccion: true, horario: true, whatsapp: true, telefono: true, foto: true, logo: true, fotos: true, activo: true, createdAt: true,
+          select: { id: true, nombre: true, rubro: true, slug: true, barrio: true, descripcion: true, direccion: true, horario: true, whatsapp: true, telefono: true, foto: true, logo: true, fotos: true, activo: true, isPremium: true, isFounder: true, createdAt: true,
             offers: { where: { activa: true }, select: { id: true, titulo: true, descripcion: true, precio: true, foto: true, validaHasta: true, createdAt: true }, orderBy: { createdAt: "desc" } },
             productos: { where: { activo: true }, select: { id: true, nombre: true, tipo: true, descripcion: true, precio: true, foto: true, createdAt: true }, orderBy: { createdAt: "desc" } },
           },
