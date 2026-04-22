@@ -2081,29 +2081,28 @@ La descripción debe:
         const { nombre, rubro, contacto } = await req.json() as { nombre: string; rubro?: string; contacto?: string };
         if (!nombre?.trim()) return new Response(JSON.stringify({ error: "Falta el nombre del comercio" }), { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } });
 
-        const prompt = `Escribí un mensaje corto y natural para enviarle al dueño de un comercio local llamado "${nombre}"${rubro ? ` (rubro: ${rubro})` : ""} en Reconquista, Santa Fe, Argentina.${contacto ? ` El nombre del dueño o contacto es ${contacto}.` : ""}
+        const prompt = `Escribí un mensaje corto y natural para enviarle al dueño de un comercio local llamado "${nombre}"${rubro ? ` (rubro: ${rubro})` : ""} en Reconquista, Santa Fe, Argentina.${contacto ? ` Dirigirte a ${contacto}.` : ""}
 
-Contexto sobre la plataforma que estoy promocionando:
-Reportes Reconquista (reportesreconquista.com) es una app local gratuita de Reconquista que tiene:
-- Directorio de comercios locales con perfil digital, fotos del local, catálogo de productos/servicios y botón de WhatsApp directo
-- Sección de ofertas y promociones para publicar descuentos
-- Directorio de profesionales de oficio (plomeros, electricistas, etc.)
-- Reportes ciudadanos (baches, semáforos rotos, etc.) usados por miles de vecinos
-- Un cartel con QR imprimible que el comercio puede poner en la vidriera para que los clientes encuentren su perfil digital
+Contexto sobre la plataforma:
+Reportes Reconquista es una app local gratuita de Reconquista. Tiene:
+- Directorio de comercios con perfil digital, fotos, catálogo y botón de WhatsApp directo
+- Ofertas y promociones para publicar descuentos
+- Directorio de profesionales de oficio
+- Cartel con QR imprimible para poner en la vidriera
+Todo gratis, sin publicidad.
 
-Todo es 100% gratis. Mi objetivo es visitar el local en persona para mostrárselo y ayudarlos a crear su perfil.
+ESTRUCTURA OBLIGATORIA del mensaje:
+1. Primera oración: presentarse como Reportes Reconquista e incluir la URL reportesreconquista.com. Ejemplo: "Te escribimos desde Reportes Reconquista (reportesreconquista.com), la app gratuita de Reconquista."
+2. Segunda/tercera oración: mencionar 1 o 2 beneficios concretos para el rubro "${rubro || "comercio local"}" — sé específico, no genérico.
+3. Última oración: proponer pasar por el local y terminar con una pregunta concreta (ej: "¿te viene bien esta semana?").
 
-El mensaje debe:
-- Estar en español rioplatense casual ("vos", "dale", "te cuento", "mirá")
-- Sonar escrito por una persona real, no un bot ni una empresa
-- Presentarme como el creador de la plataforma local (no "emprendedor", no "empresa")
-- Mencionar 1 o 2 beneficios concretos relevantes para este rubro: ${rubro || "comercio local"}
-- En alguna oración incluir literalmente la URL: reportesreconquista.com (OBLIGATORIO, no la omitas)
-- Proponer pasar por el local un momento para mostrárselo en persona
-- Tener entre 4 y 6 oraciones, ni muy corto ni muy largo
-- Terminar con una pregunta concreta para que responda (ej: "¿te viene bien esta semana?")
-- Máximo 1 emoji, o ninguno
-- Devolvé SOLO el mensaje, sin comillas, sin explicaciones, sin asunto`;
+Reglas de estilo:
+- Español rioplatense casual ("vos", "dale", "te cuento", "mirá")
+- No inventar nombres de personas, no decir "me llamo", no hablar en primera persona singular
+- Hablar en nombre de la plataforma ("te escribimos", "somos", "desde Reportes Reconquista")
+- Entre 3 y 5 oraciones en total
+- Sin emojis
+- Devolvé SOLO el mensaje, sin comillas, sin explicaciones`;
 
         const groqRes = await fetch("https://api.groq.com/openai/v1/chat/completions", {
           method: "POST",
