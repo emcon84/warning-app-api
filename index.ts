@@ -5016,6 +5016,34 @@ https://reportesreconquista.com`;
         return Response.json({ thisMonth, lastMonth, last30, dailyLast30 }, { headers: corsHeaders });
       }
 
+      // PATCH /api/admin/comercios/:id — actualizar isPremium y/o isFounder (requiere auth admin)
+      if (path.match(/^\/api\/admin\/comercios\/[^/]+$/) && method === "PATCH") {
+        const clerkUserId = await verifyClerkToken(req).catch(() => null);
+        if (!clerkUserId)
+          return new Response(JSON.stringify({ error: "No autorizado" }), {
+            status: 401,
+            headers: { ...corsHeaders, "Content-Type": "application/json" },
+          });
+        const admins = (process.env.ADMIN_CLERK_IDS || "")
+          .split(",")
+          .map((s) => s.trim())
+          .filter(Boolean);
+        if (!admins.includes(clerkUserId))
+          return new Response(JSON.stringify({ error: "Acceso denegado" }), {
+            status: 403,
+            headers: { ...corsHeaders, "Content-Type": "application/json" },
+          });
+        const id = path.split("/api/admin/comercios/")[1];
+        const body = await req.json();
+        const data: { isPremium?: boolean; isFounder?: boolean } = {};
+        if (typeof body.isPremium === "boolean") data.isPremium = body.isPremium;
+        if (typeof body.isFounder === "boolean") data.isFounder = body.isFounder;
+        const updated = await prisma.comercio.update({ where: { id }, data });
+        return new Response(JSON.stringify(updated), {
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+
       // GET /api/admin/comercios — listar todos los comercios (requiere auth admin)
       if (path === "/api/admin/comercios" && method === "GET") {
         const clerkUserId = await verifyClerkToken(req).catch(() => null);
