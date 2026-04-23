@@ -283,11 +283,11 @@ model PublicReview {
 }
 
 model Comercio {
-  id          String          @id @default(cuid())
-  clerkUserId String          @unique
+  id          String             @id @default(cuid())
+  clerkUserId String             @unique
   nombre      String
   rubro       String
-  slug        String          @unique
+  slug        String             @unique
   descripcion String?
   direccion   String?
   barrio      String
@@ -296,15 +296,16 @@ model Comercio {
   horario     String?
   foto        String?
   logo        String?
-  fotos       String[]        @default([])
-  activo      Boolean         @default(true)
-  isPremium   Boolean         @default(false)
-  isFounder   Boolean         @default(false)
-  createdAt   DateTime        @default(now())
-  updatedAt   DateTime        @updatedAt
+  fotos       String[]           @default([])
+  activo      Boolean            @default(true)
+  isPremium   Boolean            @default(false)
+  isFounder   Boolean            @default(false)
+  createdAt   DateTime           @default(now())
+  updatedAt   DateTime           @updatedAt
   offers      ComercioOffer[]
   productos   Producto[]
   vacantes    Vacante[]
+  eventos     ComercioEventDay[]
 
   @@index([barrio])
   @@index([rubro])
@@ -444,4 +445,17 @@ model VacanteMessage {
 
   @@index([conversationId])
   @@index([createdAt])
+}
+
+model ComercioEventDay {
+  id         String   @id @default(cuid())
+  comercioId String
+  type       String
+  date       String
+  count      Int      @default(0)
+  comercio   Comercio @relation(fields: [comercioId], references: [id], onDelete: Cascade)
+
+  @@unique([comercioId, type, date])
+  @@index([comercioId])
+  @@index([comercioId, date])
 }

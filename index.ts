@@ -4923,6 +4923,99 @@ https://reportesreconquista.com`;
         });
       }
 
+      // POST /api/comercios/:slug/track — trackear evento (público)
+      if (path.match(/^\/api\/comercios\/[^/]+\/track$/) && method === "POST") {
+        if (!checkRateLimit(req)) {
+          return new Response(
+            JSON.stringify({ error: "Demasiadas solicitudes. Intentá en un momento." }),
+            {
+              status: 429,
+              headers: { ...corsHeaders, "Content-Type": "application/json", "Retry-After": "60" },
+            }
+          );
+        }
+        const slug = path.split("/api/comercios/")[1].replace("/track", "");
+        const { type } = await req.json();
+        const allowedTypes = ["profile_view", "whatsapp_click", "product_view", "offer_view"];
+        if (!allowedTypes.includes(type)) {
+          return new Response(
+            JSON.stringify({ error: "Tipo de evento inválido" }),
+            { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+          );
+        }
+        const comercio = await prisma.comercio.findUnique({ where: { slug }, select: { id: true } });
+        if (!comercio) {
+          return new Response(
+            JSON.stringify({ error: "Comercio no encontrado" }),
+            { status: 404, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+          );
+        }
+        const today = new Date().toISOString().slice(0, 10);
+        await prisma.comercioEventDay.upsert({
+          where: { comercioId_type_date: { comercioId: comercio.id, type, date: today } },
+          create: { comercioId: comercio.id, type, date: today, count: 1 },
+          update: { count: { increment: 1 } },
+        });
+        return new Response(JSON.stringify({ ok: true }), {
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+
+      // GET /api/comercios/me/analytics — analytics de mi comercio (requiere auth)
+      if (path === "/api/comercios/me/analytics" && method === "GET") {
+        if (!checkRateLimit(req)) {
+          return new Response(
+            JSON.stringify({ error: "Demasiadas solicitudes. Intentá en un momento." }),
+            {
+              status: 429,
+              headers: { ...corsHeaders, "Content-Type": "application/json", "Retry-After": "60" },
+            }
+          );
+        }
+        const clerkUserId = await verifyClerkToken(req).catch(() => null);
+        if (!clerkUserId)
+          return new Response(JSON.stringify({ error: "No autorizado" }), {
+            status: 401,
+            headers: { ...corsHeaders, "Content-Type": "application/json" },
+          });
+        const comercio = await prisma.comercio.findUnique({
+          where: { clerkUserId },
+          select: { id: true },
+        });
+        if (!comercio)
+          return new Response(JSON.stringify({ error: "Comercio no encontrado" }), {
+            status: 404,
+            headers: { ...corsHeaders, "Content-Type": "application/json" },
+          });
+        const now = new Date();
+        const thisMonthStart = new Date(now.getFullYear(), now.getMonth(), 1).toISOString().slice(0, 10);
+        const lastMonthStart = new Date(now.getFullYear(), now.getMonth() - 1, 1).toISOString().slice(0, 10);
+        const lastMonthEnd = new Date(now.getFullYear(), now.getMonth(), 0).toISOString().slice(0, 10);
+        const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+        const events = await prisma.comercioEventDay.findMany({
+          where: { comercioId: comercio.id, date: { gte: lastMonthStart } },
+          orderBy: { date: "asc" },
+        });
+        const thisMonth: Record<string, number> = {};
+        const lastMonth: Record<string, number> = {};
+        const last30: Record<string, number> = {};
+        const dailyLast30: Record<string, Record<string, number>> = {};
+        for (const e of events) {
+          if (e.date >= thisMonthStart) {
+            thisMonth[e.type] = (thisMonth[e.type] ?? 0) + e.count;
+          }
+          if (e.date >= lastMonthStart && e.date <= lastMonthEnd) {
+            lastMonth[e.type] = (lastMonth[e.type] ?? 0) + e.count;
+          }
+          if (e.date >= thirtyDaysAgo) {
+            last30[e.type] = (last30[e.type] ?? 0) + e.count;
+            if (!dailyLast30[e.date]) dailyLast30[e.date] = {};
+            dailyLast30[e.date][e.type] = (dailyLast30[e.date][e.type] ?? 0) + e.count;
+          }
+        }
+        return Response.json({ thisMonth, lastMonth, last30, dailyLast30 }, { headers: corsHeaders });
+      }
+
       // GET /api/admin/comercios — listar todos los comercios (requiere auth admin)
       if (path === "/api/admin/comercios" && method === "GET") {
         const clerkUserId = await verifyClerkToken(req).catch(() => null);
