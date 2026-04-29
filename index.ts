@@ -3606,24 +3606,24 @@ https://reportesreconquista.com`;
       // POST /api/comercios/:slug/recommend — recomendar comercio (anónimo)
       if (
         path.match(/^\/api\/comercios\/[^/]+\/recommend$/) &&
-        method === POST
+        method === "POST"
       ) {
-        const slug = path.split(/api/comercios/)[1].replace(/recommend, );
+        const slug = path.split("/api/comercios/")[1].replace("/recommend", "");
         const comercio = await prisma.comercio.findUnique({
           where: { slug },
           select: { id: true, recommendations: true },
         });
         if (!comercio)
-          return new Response(JSON.stringify({ error: No encontrado }), {
-            status: 404, headers: { ...corsHeaders, Content-Type: application/json },
+          return new Response(JSON.stringify({ error: "No encontrado" }), {
+            status: 404, headers: { ...corsHeaders, "Content-Type": "application/json" },
           });
-        const ip = req.headers.get(x-forwarded-for)?.split(,)[0]?.trim() || unknown;
+        const ip = req.headers.get("x-forwarded-for")?.split(",")[0]?.trim() || "unknown";
         const ipBytes = new TextEncoder().encode(ip + comercio.id);
-        const hashBuf = await crypto.subtle.digest(SHA-256, ipBytes);
-        const ipHash = Array.from(new Uint8Array(hashBuf)).map((b: number) => b.toString(16).padStart(2, 0)).join();
+        const hashBuf = await crypto.subtle.digest("SHA-256", ipBytes);
+        const ipHash = Array.from(new Uint8Array(hashBuf)).map((b: number) => b.toString(16).padStart(2, "0")).join("");
         try {
           await prisma.recommendation.create({
-            data: { targetType: comercio, targetId: comercio.id, ipHash },
+            data: { targetType: "comercio", targetId: comercio.id, ipHash },
           });
           const updated = await prisma.comercio.update({
             where: { id: comercio.id },
@@ -3631,12 +3631,12 @@ https://reportesreconquista.com`;
             select: { recommendations: true },
           });
           return new Response(JSON.stringify({ ok: true, count: updated.recommendations }), {
-            headers: { ...corsHeaders, Content-Type: application/json },
+            headers: { ...corsHeaders, "Content-Type": "application/json" },
           });
         } catch (e: any) {
-          if (e?.code === P2002)
+          if (e?.code === "P2002")
             return new Response(JSON.stringify({ ok: false, already: true, count: comercio.recommendations }), {
-              headers: { ...corsHeaders, Content-Type: application/json },
+              headers: { ...corsHeaders, "Content-Type": "application/json" },
             });
           throw e;
         }
@@ -5515,24 +5515,24 @@ https://reportesreconquista.com`;
       // POST /api/professionals/:slug/recommend — recomendar profesional (anónimo)
       if (
         path.match(/^\/api\/professionals\/[^/]+\/recommend$/) &&
-        method === POST
+        method === "POST"
       ) {
-        const slug = path.split(/api/professionals/)[1].replace(/recommend, );
+        const slug = path.split("/api/professionals/")[1].replace("/recommend", "");
         const pro = await prisma.professional.findUnique({
           where: { slug },
           select: { id: true, recommendations: true },
         });
         if (!pro)
-          return new Response(JSON.stringify({ error: No encontrado }), {
-            status: 404, headers: { ...corsHeaders, Content-Type: application/json },
+          return new Response(JSON.stringify({ error: "No encontrado" }), {
+            status: 404, headers: { ...corsHeaders, "Content-Type": "application/json" },
           });
-        const ip = req.headers.get(x-forwarded-for)?.split(,)[0]?.trim() || unknown;
+        const ip = req.headers.get("x-forwarded-for")?.split(",")[0]?.trim() || "unknown";
         const ipBytes = new TextEncoder().encode(ip + pro.id);
-        const hashBuf = await crypto.subtle.digest(SHA-256, ipBytes);
-        const ipHash = Array.from(new Uint8Array(hashBuf)).map((b: number) => b.toString(16).padStart(2, 0)).join();
+        const hashBuf = await crypto.subtle.digest("SHA-256", ipBytes);
+        const ipHash = Array.from(new Uint8Array(hashBuf)).map((b: number) => b.toString(16).padStart(2, "0")).join("");
         try {
           await prisma.recommendation.create({
-            data: { targetType: professional, targetId: pro.id, ipHash },
+            data: { targetType: "professional", targetId: pro.id, ipHash },
           });
           const updated = await prisma.professional.update({
             where: { id: pro.id },
@@ -5540,12 +5540,12 @@ https://reportesreconquista.com`;
             select: { recommendations: true },
           });
           return new Response(JSON.stringify({ ok: true, count: updated.recommendations }), {
-            headers: { ...corsHeaders, Content-Type: application/json },
+            headers: { ...corsHeaders, "Content-Type": "application/json" },
           });
         } catch (e: any) {
-          if (e?.code === P2002)
+          if (e?.code === "P2002")
             return new Response(JSON.stringify({ ok: false, already: true, count: pro.recommendations }), {
-              headers: { ...corsHeaders, Content-Type: application/json },
+              headers: { ...corsHeaders, "Content-Type": "application/json" },
             });
           throw e;
         }
