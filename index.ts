@@ -2919,12 +2919,16 @@ https://reportesreconquista.com`;
             isPremium: true,
             isFounder: true,
             createdAt: true,
+            recommendations: true,
           },
-          orderBy: [
-            { isPremium: "desc" },
-            { isFounder: "desc" },
-            { createdAt: "asc" },
-          ],
+        });
+        comercios.sort((a: any, b: any) => {
+          const score = (c: any) => {
+            const founderBonus = c.isFounder ? 1.0 : c.isPremium ? 0.6 : 0;
+            const hasMedia = (c.logo || c.foto) ? 1 : 0;
+            return Math.min((c.recommendations || 0) / 20, 1) * 60 + founderBonus * 30 + hasMedia * 10;
+          };
+          return score(b) - score(a);
         });
         return new Response(JSON.stringify(comercios), {
           headers: { ...corsHeaders, "Content-Type": "application/json" },
@@ -3598,6 +3602,46 @@ https://reportesreconquista.com`;
         });
       }
 
+
+      // POST /api/comercios/:slug/recommend — recomendar comercio (anónimo)
+      if (
+        path.match(/^\/api\/comercios\/[^/]+\/recommend$/) &&
+        method === POST
+      ) {
+        const slug = path.split(/api/comercios/)[1].replace(/recommend, );
+        const comercio = await prisma.comercio.findUnique({
+          where: { slug },
+          select: { id: true, recommendations: true },
+        });
+        if (!comercio)
+          return new Response(JSON.stringify({ error: No encontrado }), {
+            status: 404, headers: { ...corsHeaders, Content-Type: application/json },
+          });
+        const ip = req.headers.get(x-forwarded-for)?.split(,)[0]?.trim() || unknown;
+        const ipBytes = new TextEncoder().encode(ip + comercio.id);
+        const hashBuf = await crypto.subtle.digest(SHA-256, ipBytes);
+        const ipHash = Array.from(new Uint8Array(hashBuf)).map((b: number) => b.toString(16).padStart(2, 0)).join();
+        try {
+          await prisma.recommendation.create({
+            data: { targetType: comercio, targetId: comercio.id, ipHash },
+          });
+          const updated = await prisma.comercio.update({
+            where: { id: comercio.id },
+            data: { recommendations: { increment: 1 } },
+            select: { recommendations: true },
+          });
+          return new Response(JSON.stringify({ ok: true, count: updated.recommendations }), {
+            headers: { ...corsHeaders, Content-Type: application/json },
+          });
+        } catch (e: any) {
+          if (e?.code === P2002)
+            return new Response(JSON.stringify({ ok: false, already: true, count: comercio.recommendations }), {
+              headers: { ...corsHeaders, Content-Type: application/json },
+            });
+          throw e;
+        }
+      }
+
       // GET /api/comercios/:slug — perfil público de un comercio
       if (path.match(/^\/api\/comercios\/[^/]+$/) && method === "GET") {
         const slug = path.split("/api/comercios/")[1];
@@ -3620,6 +3664,7 @@ https://reportesreconquista.com`;
             activo: true,
             isPremium: true,
             isFounder: true,
+            recommendations: true,
             createdAt: true,
             offers: {
               where: { activa: true },
@@ -5220,8 +5265,21 @@ https://reportesreconquista.com`;
             disponible: true,
             ratingAvg: true,
             ratingCount: true,
+            recommendations: true,
           },
-          orderBy: { ratingAvg: "desc" },
+        });
+        const globalAvg = professionals.length > 0
+          ? professionals.reduce((s: number, p: any) => s + p.ratingAvg, 0) / professionals.length
+          : 4.0;
+        const C = 5;
+        professionals.sort((a: any, b: any) => {
+          const score = (p: any) => {
+            const bayesian = p.ratingCount > 0
+              ? (C * globalAvg + p.ratingAvg * p.ratingCount) / (C + p.ratingCount)
+              : globalAvg * 0.5;
+            return (bayesian / 5) * 60 + Math.min((p.recommendations || 0) / 20, 1) * 30 + (p.foto ? 1 : 0) * 10;
+          };
+          return score(b) - score(a);
         });
         return new Response(JSON.stringify(professionals), {
           headers: { ...corsHeaders, "Content-Type": "application/json" },
@@ -5451,6 +5509,46 @@ https://reportesreconquista.com`;
         return new Response(JSON.stringify(publicData), {
           headers: { ...corsHeaders, "Content-Type": "application/json" },
         });
+      }
+
+
+      // POST /api/professionals/:slug/recommend — recomendar profesional (anónimo)
+      if (
+        path.match(/^\/api\/professionals\/[^/]+\/recommend$/) &&
+        method === POST
+      ) {
+        const slug = path.split(/api/professionals/)[1].replace(/recommend, );
+        const pro = await prisma.professional.findUnique({
+          where: { slug },
+          select: { id: true, recommendations: true },
+        });
+        if (!pro)
+          return new Response(JSON.stringify({ error: No encontrado }), {
+            status: 404, headers: { ...corsHeaders, Content-Type: application/json },
+          });
+        const ip = req.headers.get(x-forwarded-for)?.split(,)[0]?.trim() || unknown;
+        const ipBytes = new TextEncoder().encode(ip + pro.id);
+        const hashBuf = await crypto.subtle.digest(SHA-256, ipBytes);
+        const ipHash = Array.from(new Uint8Array(hashBuf)).map((b: number) => b.toString(16).padStart(2, 0)).join();
+        try {
+          await prisma.recommendation.create({
+            data: { targetType: professional, targetId: pro.id, ipHash },
+          });
+          const updated = await prisma.professional.update({
+            where: { id: pro.id },
+            data: { recommendations: { increment: 1 } },
+            select: { recommendations: true },
+          });
+          return new Response(JSON.stringify({ ok: true, count: updated.recommendations }), {
+            headers: { ...corsHeaders, Content-Type: application/json },
+          });
+        } catch (e: any) {
+          if (e?.code === P2002)
+            return new Response(JSON.stringify({ ok: false, already: true, count: pro.recommendations }), {
+              headers: { ...corsHeaders, Content-Type: application/json },
+            });
+          throw e;
+        }
       }
 
       // GET /api/professionals/:slug — perfil público

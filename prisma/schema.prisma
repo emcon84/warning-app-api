@@ -167,12 +167,14 @@ model Professional {
   barrio       String?
   telefono     String?
   whatsapp     String?
+  pin          String?
   foto         String?
   fotos        String[]       @default([])
   disponible   Boolean        @default(true)
   activo       Boolean        @default(true)
   ratingAvg    Float          @default(0)
   ratingCount  Int            @default(0)
+  recommendations Int         @default(0)
   createdAt    DateTime       @default(now())
   updatedAt    DateTime
   Conversation Conversation[]
@@ -300,6 +302,7 @@ model Comercio {
   activo      Boolean            @default(true)
   isPremium   Boolean            @default(false)
   isFounder   Boolean            @default(false)
+  recommendations Int        @default(0)
   createdAt   DateTime           @default(now())
   updatedAt   DateTime           @updatedAt
   offers      ComercioOffer[]
@@ -356,6 +359,7 @@ model Empleado {
   descripcion  String?
   barrio       String?
   whatsapp     String?
+  pin          String?
   foto         String?
   disponible   Boolean                @default(true)
   activo       Boolean                @default(true)
@@ -458,4 +462,15 @@ model ComercioEventDay {
   @@unique([comercioId, type, date])
   @@index([comercioId])
   @@index([comercioId, date])
+}
+
+model Recommendation {
+  id         String   @id @default(cuid())
+  targetType String
+  targetId   String
+  ipHash     String
+  createdAt  DateTime @default(now())
+
+  @@unique([targetType, targetId, ipHash])
+  @@index([targetType, targetId])
 }
