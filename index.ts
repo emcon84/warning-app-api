@@ -5383,34 +5383,12 @@ https://reportesreconquista.com`;
         const body = await req.json();
         body.comment = sanitizeText(body.comment, 1000);
         body.reviewerName = sanitizeText(body.reviewerName, 60);
-        const { score, comment, reviewerName, clientToken } = body;
-        if (!score || !comment || comment.trim().length < 10) {
+        const { score, comment = "", reviewerName, clientToken } = body;
+        if (!score || score < 1 || score > 5) {
           return new Response(JSON.stringify({ error: "Datos inválidos" }), {
             status: 400,
             headers: { ...corsHeaders, "Content-Type": "application/json" },
           });
-        }
-
-        // Verificar que el usuario tuvo una conversación con este profesional
-        // Cuando está logueado, clientToken === clerkUserId en el chat
-        const tokenCandidates = [clerkUserId, clientToken].filter(Boolean);
-        const conversation = await prisma.conversation.findFirst({
-          where: {
-            professionalId: pro.id,
-            clientToken: { in: tokenCandidates as string[] },
-          },
-        });
-        if (!conversation) {
-          return new Response(
-            JSON.stringify({
-              error:
-                "Primero tenés que contactar al profesional para poder dejar una opinión",
-            }),
-            {
-              status: 403,
-              headers: { ...corsHeaders, "Content-Type": "application/json" },
-            },
-          );
         }
 
         // Una sola opinión por usuario por profesional
