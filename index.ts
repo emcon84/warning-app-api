@@ -278,7 +278,7 @@ await db.query(
 const corsHeaders = {
   "Access-Control-Allow-Origin": process.env.CORS_ORIGIN || "*",
   "Access-Control-Allow-Methods": "GET, POST, PUT, DELETE, OPTIONS",
-  "Access-Control-Allow-Headers": "Content-Type, Authorization",
+  "Access-Control-Allow-Headers": "Content-Type, Authorization, X-Professional-Code",
 };
 
 // Servidor Bun
@@ -4816,6 +4816,38 @@ https://reportesreconquista.com`;
         });
       }
 
+
+      // PATCH /api/admin/professionals/:id/pin -- asignar/resetear PIN (requiere auth admin)
+      if (
+        path.match(/^\/api\/admin\/professionals\/[^\/]+\/pin$/) &&
+        method === "PATCH"
+      ) {
+        const clerkUserId = await verifyClerkToken(req).catch(() => null);
+        if (!clerkUserId)
+          return new Response(JSON.stringify({ error: "No autorizado" }), {
+            status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" },
+          });
+        const admins = (process.env.ADMIN_CLERK_IDS || "")
+          .split(",")
+          .map((s) => s.trim())
+          .filter(Boolean);
+        if (!admins.includes(clerkUserId))
+          return new Response(JSON.stringify({ error: "No autorizado" }), {
+            status: 403, headers: { ...corsHeaders, "Content-Type": "application/json" },
+          });
+        const id = path.split("/api/admin/professionals/")[1].replace("/pin", "");
+        const { pin } = await req.json();
+        if (!pin || !/^\d{4}$/.test(String(pin)))
+          return new Response(JSON.stringify({ error: "PIN debe ser 4 digitos" }), {
+            status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" },
+          });
+        const pinHash = await Bun.password.hash(String(pin));
+        await prisma.professional.update({ where: { id }, data: { pin: pinHash } });
+        return new Response(JSON.stringify({ ok: true }), {
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+
       // GET /api/admin/reports — listar todos los reportes (requiere auth admin)
       if (path === "/api/admin/reports" && method === "GET") {
         const clerkUserId = await verifyClerkToken(req).catch(() => null);
@@ -5199,22 +5231,17 @@ https://reportesreconquista.com`;
       // GET /api/professionals/me — perfil propio (requiere auth)
       if (path === "/api/professionals/me" && method === "GET") {
         const clerkUserId = await verifyClerkToken(req).catch(() => null);
-        if (!clerkUserId)
-          return new Response(JSON.stringify({ error: "No autorizado" }), {
-            status: 401,
+        const proCode = req.headers.get("X-Professional-Code");
+        const professional = clerkUserId
+          ? await prisma.professional.findUnique({ where: { clerkUserId } })
+          : proCode
+          ? await prisma.professional.findUnique({ where: { id: proCode } })
+          : null;
+        if (!professional)
+          return new Response(JSON.stringify({ error: "Perfil no encontrado" }), {
+            status: 404,
             headers: { ...corsHeaders, "Content-Type": "application/json" },
           });
-        const professional = await prisma.professional.findUnique({
-          where: { clerkUserId },
-        });
-        if (!professional)
-          return new Response(
-            JSON.stringify({ error: "Perfil no encontrado" }),
-            {
-              status: 404,
-              headers: { ...corsHeaders, "Content-Type": "application/json" },
-            },
-          );
         return new Response(JSON.stringify(professional), {
           headers: { ...corsHeaders, "Content-Type": "application/json" },
         });
@@ -5455,7 +5482,38 @@ https://reportesreconquista.com`;
         });
       }
 
-      // POST /api/professionals — crear perfil (auth opcional, registro anónimo permitido)
+      // POST /api/professionals/auth -- autenticar con WhatsApp + PIN
+      if (path === "/api/professionals/auth" && method === "POST") {
+        const body = await req.json();
+        const { whatsapp, pin } = body;
+        if (!whatsapp || !pin)
+          return new Response(JSON.stringify({ error: "Datos incompletos" }), {
+            status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" },
+          });
+        const waClean = String(whatsapp).replace(/\D/g, "");
+        const pro = await prisma.professional.findFirst({
+          where: {
+            OR: [
+              { whatsapp: waClean },
+              { whatsapp: "549" + waClean.slice(-10) },
+            ],
+          },
+        });
+        if (!pro || !pro.pin)
+          return new Response(JSON.stringify({ error: "Numero o PIN incorrecto" }), {
+            status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" },
+          });
+        const valid = await Bun.password.verify(String(pin), pro.pin);
+        if (!valid)
+          return new Response(JSON.stringify({ error: "Numero o PIN incorrecto" }), {
+            status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" },
+          });
+        return new Response(JSON.stringify({ id: pro.id, nombre: pro.nombre, slug: pro.slug }), {
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+
+            // POST /api/professionals — crear perfil (auth opcional, registro anónimo permitido)
       if (path === "/api/professionals" && method === "POST") {
         if (!checkStrictRateLimit(req)) {
           return new Response(
@@ -5507,6 +5565,7 @@ https://reportesreconquista.com`;
           descripcion,
           telefono,
           whatsapp,
+          pin,
         } = body;
         const safeTipo =
           tipo === "profesion" || tipo === "oficio" ? tipo : null;
@@ -5527,6 +5586,7 @@ https://reportesreconquista.com`;
             apellido,
             slug,
             tipo: safeTipo,
+            pin: pin ? await Bun.password.hash(pin) : null,
             oficios,
             descripcion,
             telefono,
@@ -5543,7 +5603,13 @@ https://reportesreconquista.com`;
       // PUT /api/professionals/me — actualizar perfil propio (requiere auth)
       if (path === "/api/professionals/me" && method === "PUT") {
         const clerkUserId = await verifyClerkToken(req).catch(() => null);
-        if (!clerkUserId)
+        const proCodePut = req.headers.get("X-Professional-Code");
+        const proToUpdate = clerkUserId
+          ? await prisma.professional.findUnique({ where: { clerkUserId } })
+          : proCodePut
+          ? await prisma.professional.findUnique({ where: { id: proCodePut } })
+          : null;
+        if (!proToUpdate)
           return new Response(JSON.stringify({ error: "No autorizado" }), {
             status: 401,
             headers: { ...corsHeaders, "Content-Type": "application/json" },
@@ -5565,7 +5631,7 @@ https://reportesreconquista.com`;
         const safeTipo =
           tipo === "profesion" || tipo === "oficio" ? tipo : undefined;
         const professional = await prisma.professional.update({
-          where: { clerkUserId },
+          where: { id: proToUpdate.id },
           data: {
             nombre,
             apellido,
@@ -5588,7 +5654,13 @@ https://reportesreconquista.com`;
       // POST /api/professionals/me/photo — subir foto de perfil profesional
       if (path === "/api/professionals/me/photo" && method === "POST") {
         const clerkUserId = await verifyClerkToken(req).catch(() => null);
-        if (!clerkUserId)
+        const proCodePhoto = req.headers.get("X-Professional-Code");
+        const proForPhoto = clerkUserId
+          ? await prisma.professional.findUnique({ where: { clerkUserId } })
+          : proCodePhoto
+          ? await prisma.professional.findUnique({ where: { id: proCodePhoto } })
+          : null;
+        if (!proForPhoto)
           return new Response(JSON.stringify({ error: "No autorizado" }), {
             status: 401,
             headers: { ...corsHeaders, "Content-Type": "application/json" },
@@ -5610,7 +5682,7 @@ https://reportesreconquista.com`;
         await Bun.write(filePath, await photoFile.arrayBuffer());
         const fotoUrl = `/uploads/${filename}`;
         const professional = await prisma.professional.update({
-          where: { clerkUserId },
+          where: { id: proForPhoto.id },
           data: { foto: fotoUrl },
         });
         return new Response(JSON.stringify({ foto: professional.foto }), {
@@ -5619,6 +5691,65 @@ https://reportesreconquista.com`;
       }
 
       // ═══════════════════════════════════════════════════════════════════
+
+      // POST /api/professionals/me/fotos — agregar foto a galería (requiere auth)
+      if (path === "/api/professionals/me/fotos" && method === "POST") {
+        const clerkUserId = await verifyClerkToken(req).catch(() => null);
+        const proFotosCode = req.headers.get("X-Professional-Code");
+        if (!clerkUserId && !proFotosCode)
+          return new Response(JSON.stringify({ error: "No autorizado" }), {
+            status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" },
+          });
+        const formData = await req.formData();
+        const photoFile = formData.get("photo") as File | null;
+        if (!photoFile || photoFile.size === 0)
+          return new Response(JSON.stringify({ error: "No se recibió imagen" }), {
+            status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" },
+          });
+        const ext = photoFile.name.split(".").pop()?.toLowerCase() || "jpg";
+        const filename = "professional_gallery_" + crypto.randomUUID() + "." + ext;
+        await Bun.write(join(uploadsDir, filename), await photoFile.arrayBuffer());
+        const fotoUrl = "/uploads/" + filename;
+        const pro = clerkUserId
+          ? await prisma.professional.findUnique({ where: { clerkUserId } })
+          : await prisma.professional.findUnique({ where: { id: proFotosCode! } });
+        if (!pro)
+          return new Response(JSON.stringify({ error: "Perfil no encontrado" }), {
+            status: 404, headers: { ...corsHeaders, "Content-Type": "application/json" },
+          });
+        const updated = await prisma.professional.update({
+          where: { id: pro.id },
+          data: { fotos: [...pro.fotos, fotoUrl] },
+        });
+        return new Response(JSON.stringify({ fotos: updated.fotos }), {
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+
+      // DELETE /api/professionals/me/fotos — eliminar foto de galería (requiere auth)
+      if (path === "/api/professionals/me/fotos" && method === "DELETE") {
+        const clerkUserId = await verifyClerkToken(req).catch(() => null);
+        const proDelCode = req.headers.get("X-Professional-Code");
+        if (!clerkUserId && !proDelCode)
+          return new Response(JSON.stringify({ error: "No autorizado" }), {
+            status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" },
+          });
+        const { fotoUrl } = await req.json();
+        const pro = clerkUserId
+          ? await prisma.professional.findUnique({ where: { clerkUserId } })
+          : await prisma.professional.findUnique({ where: { id: proDelCode! } });
+        if (!pro)
+          return new Response(JSON.stringify({ error: "Perfil no encontrado" }), {
+            status: 404, headers: { ...corsHeaders, "Content-Type": "application/json" },
+          });
+        const fotos = pro.fotos.filter((f: string) => f !== fotoUrl);
+        await prisma.professional.update({ where: { id: pro.id }, data: { fotos } });
+        return new Response(JSON.stringify({ fotos }), {
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+
+
       // FAVORITOS
       // ═══════════════════════════════════════════════════════════════════
 
