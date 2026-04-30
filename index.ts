@@ -3476,24 +3476,54 @@ https://reportesreconquista.com`;
         }
 
         const today = new Date().toISOString().slice(0, 10);
-        const freeDailyLimit = envInt("PRODUCT_AI_FREE_DAILY_LIMIT", 10);
-        const premiumDailyLimit = envInt("PRODUCT_AI_PREMIUM_DAILY_LIMIT", 50);
+        
+        // Configuración de límites según el plan
+        let dailyLimit = 2; // Free
+        let totalLimit = 50; // Free
+        let planName = "Gratis";
+
+        if (comercio.isFounder) {
+          dailyLimit = 20;
+          totalLimit = 999999; // Ilimitado
+          planName = "Master";
+        } else if (comercio.isPremium) {
+          dailyLimit = 20;
+          totalLimit = 100;
+          planName = "Premium";
+        }
+
+        // 1. Validar cuota total de productos
+        const productCount = await prisma.producto.count({
+          where: { comercioId: comercio.id }
+        });
+
+        if (productCount >= totalLimit) {
+          return new Response(
+            JSON.stringify({
+              error: "TOTAL_LIMIT_REACHED",
+              message: `Tu plan ${planName} permite hasta ${totalLimit} productos. ¡Pasate a un plan superior para seguir creciendo!`,
+            }),
+            {
+              status: 403,
+              headers: { ...corsHeaders, "Content-Type": "application/json" },
+            },
+          );
+        }
+
+        // 2. Validar cuota diaria de IA
         const globalDailyLimit = envInt("PRODUCT_AI_GLOBAL_DAILY_LIMIT", 800);
-        const comercioLimit = comercio.isPremium || comercio.isFounder
-          ? premiumDailyLimit
-          : freeDailyLimit;
 
         const comercioUsage = await incrementProductAiUsage(
           `comercio:${comercio.id}`,
           comercio.id,
           today,
-          comercioLimit,
+          dailyLimit,
         );
         if (comercioUsage === null) {
           return new Response(
             JSON.stringify({
               error: "AI_DAILY_LIMIT_REACHED",
-              message: `Alcanzaste el límite diario de ${comercioLimit} análisis con IA.`,
+              message: `Alcanzaste el límite diario de ${dailyLimit} fotos con IA de tu plan ${planName}.`,
             }),
             {
               status: 429,
@@ -5332,6 +5362,90 @@ Devolvé únicamente un JSON válido con esta forma:
           }
         }
         return Response.json({ thisMonth, lastMonth, last30, dailyLast30 }, { headers: corsHeaders });
+      }
+
+      // GET /api/comercios/me/plan — obtener plan actual con límites y usage (requiere auth)
+      if (path === "/api/comercios/me/plan" && method === "GET") {
+        if (!checkRateLimit(req)) {
+          return new Response(
+            JSON.stringify({ error: "Demasiadas solicitudes. Intentá en un momento." }),
+            {
+              status: 429,
+              headers: { ...corsHeaders, "Content-Type": "application/json", "Retry-After": "60" },
+            }
+          );
+        }
+        const clerkUserId = await verifyClerkToken(req).catch(() => null);
+        if (!clerkUserId)
+          return new Response(JSON.stringify({ error: "No autorizado" }), {
+            status: 401,
+            headers: { ...corsHeaders, "Content-Type": "application/json" },
+          });
+        const comercio = await prisma.comercio.findUnique({
+          where: { clerkUserId },
+          select: { id: true, isPremium: true, isFounder: true, nombre: true, slug: true },
+        });
+        if (!comercio)
+          return new Response(JSON.stringify({ error: "Comercio no encontrado" }), {
+            status: 404,
+            headers: { ...corsHeaders, "Content-Type": "application/json" },
+          });
+
+        // Determinar plan y límites
+        let plan: "free" | "premium" | "master" = "free";
+        let dailyAiLimit = 2;
+        let totalProductLimit = 50;
+        let planName = "Gratis";
+
+        if (comercio.isFounder) {
+          plan = "master";
+          dailyAiLimit = 20;
+          totalProductLimit = 999999;
+          planName = "Master";
+        } else if (comercio.isPremium) {
+          plan = "premium";
+          dailyAiLimit = 20;
+          totalProductLimit = 100;
+          planName = "Premium";
+        }
+
+        // Contar productos totales
+        const productCount = await prisma.producto.count({
+          where: { comercioId: comercio.id },
+        });
+
+        // Leer uso de IA de hoy
+        const today = new Date().toISOString().slice(0, 10);
+        const aiUsageRow = await prisma.productAiUsageDay.findUnique({
+          where: { key_date: { key: `comercio:${comercio.id}`, date: today } },
+        });
+        const aiUsageToday = aiUsageRow?.count ?? 0;
+
+        // Leer límite global
+        const globalDailyLimit = envInt("PRODUCT_AI_GLOBAL_DAILY_LIMIT", 800);
+        const globalAiUsage = await prisma.productAiUsageDay.findUnique({
+          where: { key_date: { key: "global", date: today } },
+        });
+        const globalAiUsageToday = globalAiUsage?.count ?? 0;
+
+        return Response.json(
+          {
+            plan,
+            planName,
+            limits: {
+              dailyAi: dailyAiLimit,
+              totalProducts: totalProductLimit === 999999 ? "ilimitado" : totalProductLimit,
+            },
+            usage: {
+              productos: productCount,
+              aiHoy: aiUsageToday,
+              aiGlobalHoy: globalAiUsageToday,
+            },
+            canUpgrade: plan === "free",
+            upgradeUrl: plan === "free" ? "/comercio/upgrade" : null,
+          },
+          { headers: corsHeaders },
+        );
       }
 
       // PATCH /api/admin/comercios/:id — actualizar isPremium y/o isFounder (requiere auth admin)
