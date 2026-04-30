@@ -102,6 +102,53 @@ function sanitizeText(input: unknown, maxLength = 1000): string {
   );
 }
 
+function parseAiJsonObject(text: string): Record<string, unknown> | null {
+  try {
+    const parsed = JSON.parse(text);
+    return parsed && typeof parsed === "object" && !Array.isArray(parsed)
+      ? parsed
+      : null;
+  } catch {
+    const match = text.match(/\{[\s\S]*\}/);
+    if (!match) return null;
+    try {
+      const parsed = JSON.parse(match[0]);
+      return parsed && typeof parsed === "object" && !Array.isArray(parsed)
+        ? parsed
+        : null;
+    } catch {
+      return null;
+    }
+  }
+}
+
+function getGroqOutputText(data: any): string {
+  return data?.choices?.[0]?.message?.content?.trim() ?? "";
+}
+
+function envInt(name: string, fallback: number): number {
+  const value = Number.parseInt(process.env[name] ?? "", 10);
+  return Number.isFinite(value) && value > 0 ? value : fallback;
+}
+
+async function incrementProductAiUsage(
+  key: string,
+  comercioId: string | null,
+  date: string,
+  limit: number,
+): Promise<number | null> {
+  const rows = await prisma.$queryRaw<{ count: number }[]>`
+    INSERT INTO "ProductAiUsageDay" ("id", "key", "comercioId", "date", "count", "createdAt", "updatedAt")
+    VALUES (${crypto.randomUUID()}, ${key}, ${comercioId}, ${date}::date, 1, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+    ON CONFLICT ("key", "date") DO UPDATE
+    SET "count" = "ProductAiUsageDay"."count" + 1,
+        "updatedAt" = CURRENT_TIMESTAMP
+    WHERE "ProductAiUsageDay"."count" < ${limit}
+    RETURNING "count"
+  `;
+  return rows[0]?.count ?? null;
+}
+
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
 async function verifyClerkToken(req: Request): Promise<string | null> {
@@ -3356,6 +3403,200 @@ https://reportesreconquista.com`;
         });
         return new Response(JSON.stringify(producto), {
           status: 201,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+
+      // POST /api/comercios/me/productos/autocompletar — extrae datos desde una foto (requiere auth)
+      if (
+        path === "/api/comercios/me/productos/autocompletar" &&
+        method === "POST"
+      ) {
+        if (!checkStrictRateLimit(req))
+          return new Response(
+            JSON.stringify({ error: "Demasiadas solicitudes." }),
+            {
+              status: 429,
+              headers: { ...corsHeaders, "Content-Type": "application/json" },
+            },
+          );
+        const clerkUserId = await verifyClerkToken(req).catch(() => null);
+        if (!clerkUserId)
+          return new Response(JSON.stringify({ error: "No autorizado" }), {
+            status: 401,
+            headers: { ...corsHeaders, "Content-Type": "application/json" },
+          });
+        const comercio = await prisma.comercio.findUnique({
+          where: { clerkUserId },
+          select: { id: true, rubro: true, isPremium: true, isFounder: true },
+        });
+        if (!comercio)
+          return new Response(
+            JSON.stringify({ error: "No tenés un comercio registrado" }),
+            {
+              status: 404,
+              headers: { ...corsHeaders, "Content-Type": "application/json" },
+            },
+          );
+        if (!process.env.GROQ_API_KEY) {
+          return new Response(
+            JSON.stringify({
+              error: "AI_NOT_CONFIGURED",
+              message: "Falta configurar GROQ_API_KEY en el servidor.",
+            }),
+            {
+              status: 503,
+              headers: { ...corsHeaders, "Content-Type": "application/json" },
+            },
+          );
+        }
+
+        const formData = await req.formData();
+        const image = formData.get("photo") as File | null;
+        if (!image || image.size === 0) {
+          return new Response(JSON.stringify({ error: "Falta la foto" }), {
+            status: 400,
+            headers: { ...corsHeaders, "Content-Type": "application/json" },
+          });
+        }
+        if (!image.type.startsWith("image/")) {
+          return new Response(JSON.stringify({ error: "Archivo inválido" }), {
+            status: 400,
+            headers: { ...corsHeaders, "Content-Type": "application/json" },
+          });
+        }
+        if (image.size > 4 * 1024 * 1024) {
+          return new Response(
+            JSON.stringify({ error: "La foto para IA no puede superar 4 MB" }),
+            {
+              status: 400,
+              headers: { ...corsHeaders, "Content-Type": "application/json" },
+            },
+          );
+        }
+
+        const today = new Date().toISOString().slice(0, 10);
+        const freeDailyLimit = envInt("PRODUCT_AI_FREE_DAILY_LIMIT", 10);
+        const premiumDailyLimit = envInt("PRODUCT_AI_PREMIUM_DAILY_LIMIT", 50);
+        const globalDailyLimit = envInt("PRODUCT_AI_GLOBAL_DAILY_LIMIT", 800);
+        const comercioLimit = comercio.isPremium || comercio.isFounder
+          ? premiumDailyLimit
+          : freeDailyLimit;
+
+        const comercioUsage = await incrementProductAiUsage(
+          `comercio:${comercio.id}`,
+          comercio.id,
+          today,
+          comercioLimit,
+        );
+        if (comercioUsage === null) {
+          return new Response(
+            JSON.stringify({
+              error: "AI_DAILY_LIMIT_REACHED",
+              message: `Alcanzaste el límite diario de ${comercioLimit} análisis con IA.`,
+            }),
+            {
+              status: 429,
+              headers: { ...corsHeaders, "Content-Type": "application/json" },
+            },
+          );
+        }
+
+        const globalUsage = await incrementProductAiUsage(
+          "global",
+          null,
+          today,
+          globalDailyLimit,
+        );
+        if (globalUsage === null) {
+          return new Response(
+            JSON.stringify({
+              error: "AI_GLOBAL_LIMIT_REACHED",
+              message:
+                "El límite diario de análisis con IA de la plataforma se agotó por hoy.",
+            }),
+            {
+              status: 429,
+              headers: { ...corsHeaders, "Content-Type": "application/json" },
+            },
+          );
+        }
+
+        const imageBuffer = await image.arrayBuffer();
+        const imageBase64 = Buffer.from(imageBuffer).toString("base64");
+        const mimeType = image.type || "image/jpeg";
+        const groqRes = await fetch(
+          "https://api.groq.com/openai/v1/chat/completions",
+          {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              Authorization: `Bearer ${process.env.GROQ_API_KEY}`,
+            },
+            body: JSON.stringify({
+              model:
+                process.env.GROQ_PRODUCT_VISION_MODEL ||
+                "meta-llama/llama-4-scout-17b-16e-instruct",
+              temperature: 0,
+              max_completion_tokens: 300,
+              response_format: { type: "json_object" },
+              messages: [
+                {
+                  role: "user",
+                  content: [
+                    {
+                      type: "text",
+                      text: `Analizá esta foto tomada por un comercio de Reconquista, Santa Fe, para cargar un producto o servicio en su catálogo.
+
+Rubro del comercio: ${comercio.rubro || "No especificado"}.
+
+Extraé sólo datos visibles o razonablemente inferibles. Si el nombre o precio no se ve claro, dejalo vacío y bajá la confianza. El precio debe conservar moneda/símbolo si aparece. No inventes promociones ni descripciones largas.
+
+Devolvé únicamente un JSON válido con esta forma:
+{"nombre":"","precio":"","descripcion":"","tipo":"producto","confianza":0,"notas":""}
+
+"tipo" debe ser "producto" o "servicio". "confianza" debe ser un número entre 0 y 1.`,
+                    },
+                    {
+                      type: "image_url",
+                      image_url: {
+                        url: `data:${mimeType};base64,${imageBase64}`,
+                      },
+                    },
+                  ],
+                },
+              ],
+            }),
+          },
+        );
+
+        if (!groqRes.ok) {
+          const details = await groqRes.text().catch(() => "");
+          console.error("[producto-autocompletar] Groq error", details);
+          return new Response(
+            JSON.stringify({ error: "No se pudo analizar la foto" }),
+            {
+              status: 502,
+              headers: { ...corsHeaders, "Content-Type": "application/json" },
+            },
+          );
+        }
+
+        const aiData = await groqRes.json();
+        const parsed = parseAiJsonObject(getGroqOutputText(aiData));
+        const suggestion = {
+          nombre: sanitizeText(parsed?.nombre, 150),
+          precio: sanitizeText(parsed?.precio, 50),
+          descripcion: sanitizeText(parsed?.descripcion, 500),
+          tipo: parsed?.tipo === "servicio" ? "servicio" : "producto",
+          confianza:
+            typeof parsed?.confianza === "number"
+              ? Math.max(0, Math.min(1, parsed.confianza))
+              : 0,
+          notas: sanitizeText(parsed?.notas, 200),
+        };
+
+        return new Response(JSON.stringify(suggestion), {
           headers: { ...corsHeaders, "Content-Type": "application/json" },
         });
       }
