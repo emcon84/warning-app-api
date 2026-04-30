@@ -5416,15 +5416,16 @@ Devolvé únicamente un JSON válido con esta forma:
 
         // Leer uso de IA de hoy
         const today = new Date().toISOString().slice(0, 10);
+        const todayDate = new Date(today + "T00:00:00.000Z");
         const aiUsageRow = await prisma.productAiUsageDay.findUnique({
-          where: { key_date: { key: `comercio:${comercio.id}`, date: today } },
+          where: { key_date: { key: `comercio:${comercio.id}`, date: todayDate } },
         });
         const aiUsageToday = aiUsageRow?.count ?? 0;
 
         // Leer límite global
         const globalDailyLimit = envInt("PRODUCT_AI_GLOBAL_DAILY_LIMIT", 800);
         const globalAiUsage = await prisma.productAiUsageDay.findUnique({
-          where: { key_date: { key: "global", date: today } },
+          where: { key_date: { key: "global", date: todayDate } },
         });
         const globalAiUsageToday = globalAiUsage?.count ?? 0;
 
