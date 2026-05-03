@@ -3623,7 +3623,7 @@ Devolvé únicamente un JSON válido con esta forma:
         });
       }
 
-      // POST /api/comercios/me/productos/generar-imagen — genera imagen de catálogo con DALL-E 3
+      // POST /api/comercios/me/productos/generar-imagen — genera imagen de catálogo con Gemini
       if (
         path === "/api/comercios/me/productos/generar-imagen" &&
         method === "POST"
@@ -3648,7 +3648,7 @@ Devolvé únicamente un JSON válido con esta forma:
             status: 404, headers: { ...corsHeaders, "Content-Type": "application/json" },
           });
 
-        if (!process.env.OPENAI_API_KEY)
+        if (!process.env.GEMINI_API_KEY)
           return new Response(JSON.stringify({ error: "Generación de imágenes no disponible." }), {
             status: 503, headers: { ...corsHeaders, "Content-Type": "application/json" },
           });
@@ -3678,7 +3678,7 @@ Devolvé únicamente un JSON válido con esta forma:
         const tipo = body.tipo === "servicio" ? "servicio" : "producto";
         const rubro = comercio.rubro || "comercio";
 
-        // Prompt contextual en inglés para mejores resultados con DALL-E 3
+        // Prompt contextual en inglés para mejores resultados con Gemini
         const rubroStyle: Record<string, string> = {
           "Restaurante/Comida":        "professional food photography, appetizing presentation, warm natural lighting, shallow depth of field",
           "Almacén/Despensa":          "product shot on wooden surface, warm store ambiance, soft natural light",
@@ -3701,47 +3701,40 @@ Devolvé únicamente un JSON válido con esta forma:
         const descPart = descripcion ? ` Description: ${descripcion}.` : "";
         const prompt = `Professional commercial catalog image of: ${nombre}.${descPart} Store type: ${rubro}. Style: ${style}. Isolated product, photorealistic, high quality, no text, no watermarks, no people.`;
 
-        const dalleRes = await fetch("https://api.openai.com/v1/images/generations", {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            Authorization: `Bearer ${process.env.OPENAI_API_KEY}`,
+        const geminiRes = await fetch(
+          `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-preview-image-generation:generateContent?key=${process.env.GEMINI_API_KEY}`,
+          {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              contents: [{ parts: [{ text: prompt }] }],
+              generationConfig: { responseModalities: ["IMAGE", "TEXT"] },
+            }),
           },
-          body: JSON.stringify({
-            model: "dall-e-3",
-            prompt,
-            n: 1,
-            size: "1024x1024",
-            quality: "standard",
-            response_format: "url",
-          }),
-        });
+        );
 
-        if (!dalleRes.ok) {
-          const err = await dalleRes.text().catch(() => "");
-          console.error("[generar-imagen] DALL-E error", err);
+        if (!geminiRes.ok) {
+          const err = await geminiRes.text().catch(() => "");
+          console.error("[generar-imagen] Gemini error", err);
           return new Response(JSON.stringify({ error: "No se pudo generar la imagen. Intentá de nuevo." }), {
             status: 502, headers: { ...corsHeaders, "Content-Type": "application/json" },
           });
         }
 
-        const dalleData = await dalleRes.json() as { data: { url: string }[] };
-        const imageUrl = dalleData.data?.[0]?.url;
-        if (!imageUrl)
-          return new Response(JSON.stringify({ error: "Respuesta inesperada del generador de imágenes." }), {
+        type GeminiPart = { inlineData?: { mimeType: string; data: string }; text?: string };
+        type GeminiResponse = { candidates?: { content?: { parts?: GeminiPart[] } }[] };
+        const geminiData = await geminiRes.json() as GeminiResponse;
+        const imagePart = geminiData.candidates?.[0]?.content?.parts?.find((p) => p.inlineData);
+        if (!imagePart?.inlineData)
+          return new Response(JSON.stringify({ error: "No se pudo generar la imagen. Intentá de nuevo." }), {
             status: 502, headers: { ...corsHeaders, "Content-Type": "application/json" },
           });
 
-        // Descargar y guardar la imagen localmente
-        const imgRes = await fetch(imageUrl);
-        if (!imgRes.ok)
-          return new Response(JSON.stringify({ error: "No se pudo descargar la imagen generada." }), {
-            status: 502, headers: { ...corsHeaders, "Content-Type": "application/json" },
-          });
-
-        const imgBuffer = await imgRes.arrayBuffer();
-        const filename = `ai-catalog-${Date.now()}-${Math.random().toString(36).slice(2, 8)}.png`;
-        const url = await uploadToR2(imgBuffer, filename, "image/png");
+        const imgBuffer = Buffer.from(imagePart.inlineData.data, "base64");
+        const mimeType = imagePart.inlineData.mimeType || "image/png";
+        const ext = mimeType.includes("jpeg") ? "jpg" : "png";
+        const filename = `ai-catalog-${Date.now()}-${Math.random().toString(36).slice(2, 8)}.${ext}`;
+        const url = await uploadToR2(imgBuffer.buffer as ArrayBuffer, filename, mimeType);
 
         return new Response(JSON.stringify({ url }), {
           status: 201, headers: { ...corsHeaders, "Content-Type": "application/json" },
