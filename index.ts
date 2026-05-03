@@ -3667,24 +3667,18 @@ Devolvé únicamente un JSON válido con esta forma:
             message: `Alcanzaste el límite diario de ${dailyLimit} imagen${dailyLimit > 1 ? "es" : ""} generada${dailyLimit > 1 ? "s" : ""} con IA de tu plan ${planName}.`,
           }), { status: 429, headers: { ...corsHeaders, "Content-Type": "application/json" } });
 
-        const body = await req.json().catch(() => ({})) as { nombre?: string; descripcion?: string; tipo?: string };
-        const nombre = sanitizeText(body.nombre, 150)?.trim();
-        if (!nombre)
-          return new Response(JSON.stringify({ error: "El nombre del producto es obligatorio" }), {
-            status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" },
-          });
-
-        const descripcion = sanitizeText(body.descripcion, 300)?.trim() || "";
-        const tipo = body.tipo === "servicio" ? "servicio" : "producto";
-        const rubro = comercio.rubro || "comercio";
-
-        // Recibir la foto del producto
+        // Recibir todo desde FormData (foto + campos)
         const formData = await req.formData();
         const photoFile = formData.get("photo") as File | null;
         if (!photoFile || photoFile.size === 0)
           return new Response(JSON.stringify({ error: "Se necesita la foto del producto para generar la imagen." }), {
             status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" },
           });
+
+        const nombre = sanitizeText(formData.get("nombre") as string, 150)?.trim() || "";
+        const descripcion = sanitizeText(formData.get("descripcion") as string, 300)?.trim() || "";
+        const tipo = (formData.get("tipo") as string) === "servicio" ? "servicio" : "producto";
+        const rubro = comercio.rubro || "comercio";
 
         const photoBuffer = Buffer.from(await photoFile.arrayBuffer());
 
