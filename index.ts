@@ -7,6 +7,7 @@ import { createClerkClient, verifyToken } from "@clerk/backend";
 import { PrismaClient } from "@prisma/client";
 import { Resend } from "resend";
 import { S3Client, PutObjectCommand } from "@aws-sdk/client-s3";
+import sharp from "sharp";
 
 // Declaración global para que TypeScript reconozca Bun
 declare global {
@@ -3677,59 +3678,100 @@ Devolvé únicamente un JSON válido con esta forma:
         const tipo = body.tipo === "servicio" ? "servicio" : "producto";
         const rubro = comercio.rubro || "comercio";
 
-        // Prompt contextual en inglés (Pollinations/FLUX)
-        const rubroStyle: Record<string, string> = {
-          "Restaurante/Comida":        "professional food photography, appetizing presentation, warm natural lighting, shallow depth of field",
-          "Almacén/Despensa":          "product shot on wooden surface, warm store ambiance, soft natural light",
-          "Farmacia":                  "clean clinical white background, professional medical/pharmacy product photography",
-          "Salud/Bienestar":           "clean minimalist background, wellness aesthetic, soft natural light",
-          "Electrónica":               "tech product photography, dark gradient background, dramatic studio lighting",
-          "Tecnología/Informática":    "tech product photography, sleek dark or gradient background, studio lighting",
-          "Indumentaria":              "fashion product flat lay or display, clean light background, editorial style",
-          "Calzado":                   "shoe product photography, clean white or gradient background, studio lighting",
-          "Peluquería/Estética":       "beauty product photography, elegant pastel background, soft light",
-          "Mueblería":                 "furniture product in a modern interior setting, architectural photography",
-          "Deportes":                  "sports product photography, dynamic energetic background, studio lighting",
-          "Veterinaria":               "pet product photography, clean white background, soft natural light",
-          "Automotriz/Mecánica":       "automotive product photography, dark industrial background, dramatic lighting",
-          "Joyería/Relojería":         "luxury jewelry/watch product photography, black velvet or marble background, macro detail lighting",
-          "Librería/Papelería":        "stationery product flat lay, light clean background, overhead shot",
-          "Fotografía/Arte":           "creative product photography, artistic composition, professional studio",
-        };
-        const style = rubroStyle[rubro] || "professional product catalog photography, clean studio background, soft lighting";
-        const descPart = descripcion ? ` Description: ${descripcion}.` : "";
-        const prompt = `Professional commercial catalog image of: ${nombre}.${descPart} Store type: ${rubro}. Style: ${style}. Isolated product, photorealistic, high quality, no text, no watermarks, no people.`;
+        // Recibir la foto del producto
+        const formData = await req.formData();
+        const photoFile = formData.get("photo") as File | null;
+        if (!photoFile || photoFile.size === 0)
+          return new Response(JSON.stringify({ error: "Se necesita la foto del producto para generar la imagen." }), {
+            status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" },
+          });
 
-        // Pollinations.ai — gratis, sin API key, usa FLUX
-        const encodedPrompt = encodeURIComponent(prompt);
-        const seed = Math.floor(Math.random() * 999999);
-        const pollinationsUrl = `https://image.pollinations.ai/prompt/${encodedPrompt}?width=1024&height=1024&model=flux&nologo=true&seed=${seed}`;
+        const photoBuffer = Buffer.from(await photoFile.arrayBuffer());
 
-        console.log("[generar-imagen] Llamando Pollinations...");
-        let imgRes: Response;
+        // 1. BiRefNet (HuggingFace) — remover fondo
+        console.log("[generar-imagen] Llamando BiRefNet...");
+        let bgRemovedBuffer: Buffer;
         try {
-          imgRes = await fetch(pollinationsUrl, { signal: AbortSignal.timeout(90_000) });
-        } catch (fetchErr: any) {
-          console.error("[generar-imagen] Pollinations fetch error:", fetchErr?.message ?? fetchErr);
-          return new Response(JSON.stringify({ error: "No se pudo generar la imagen. Intentá de nuevo." }), {
+          const hfRes = await fetch(
+            "https://api-inference.huggingface.co/models/ZhengPeng7/BiRefNet",
+            {
+              method: "POST",
+              headers: {
+                Authorization: `Bearer ${process.env.HF_API_KEY}`,
+                "Content-Type": "application/octet-stream",
+                Accept: "image/png",
+              },
+              body: photoBuffer,
+              signal: AbortSignal.timeout(60_000),
+            },
+          );
+          if (!hfRes.ok) {
+            const err = await hfRes.text().catch(() => "");
+            console.error("[generar-imagen] BiRefNet error", hfRes.status, err.slice(0, 200));
+            return new Response(JSON.stringify({ error: "No se pudo procesar la imagen. Intentá de nuevo." }), {
+              status: 502, headers: { ...corsHeaders, "Content-Type": "application/json" },
+            });
+          }
+          bgRemovedBuffer = Buffer.from(await hfRes.arrayBuffer());
+        } catch (e: any) {
+          console.error("[generar-imagen] BiRefNet fetch error:", e?.message);
+          return new Response(JSON.stringify({ error: "No se pudo procesar la imagen. Intentá de nuevo." }), {
             status: 502, headers: { ...corsHeaders, "Content-Type": "application/json" },
           });
         }
 
-        console.log("[generar-imagen] Pollinations status:", imgRes.status, imgRes.headers.get("content-type"));
-        if (!imgRes.ok || !imgRes.headers.get("content-type")?.startsWith("image/")) {
-          const body = await imgRes.text().catch(() => "");
-          console.error("[generar-imagen] Pollinations bad response:", imgRes.status, body.slice(0, 200));
-          return new Response(JSON.stringify({ error: "No se pudo generar la imagen. Intentá de nuevo." }), {
-            status: 502, headers: { ...corsHeaders, "Content-Type": "application/json" },
-          });
-        }
+        // 2. Sharp — componer imagen de catálogo profesional
+        const SIZE = 1000;
+        const PRODUCT_MAX = 780;
+        const SHADOW_OFFSET_Y = 28;
+        const SHADOW_BLUR = 38;
 
-        const imgBuffer = await imgRes.arrayBuffer();
-        const mimeType = imgRes.headers.get("content-type") || "image/jpeg";
-        const ext = mimeType.includes("png") ? "png" : "jpg";
-        const filename = `ai-catalog-${Date.now()}-${Math.random().toString(36).slice(2, 8)}.${ext}`;
-        const url = await uploadToR2(imgBuffer, filename, mimeType);
+        // Redimensionar producto manteniendo aspect ratio
+        const productResized = await sharp(bgRemovedBuffer)
+          .resize(PRODUCT_MAX, PRODUCT_MAX, { fit: "inside", withoutEnlargement: false })
+          .png()
+          .toBuffer();
+
+        const productMeta = await sharp(productResized).metadata();
+        const pw = productMeta.width ?? PRODUCT_MAX;
+        const ph = productMeta.height ?? PRODUCT_MAX;
+        const left = Math.round((SIZE - pw) / 2);
+        const top  = Math.round((SIZE - ph) / 2) - 20;
+
+        // Sombra: extraer alpha, expandir y difuminar
+        const shadowLayer = await sharp(productResized)
+          .extractChannel("alpha")
+          .toBuffer();
+
+        const shadowComposed = await sharp(shadowLayer)
+          .resize(pw, ph)
+          .blur(SHADOW_BLUR)
+          .toBuffer();
+
+        // Fondo crema cálido
+        const background = await sharp({
+          create: { width: SIZE, height: SIZE, channels: 3, background: { r: 248, g: 246, b: 242 } },
+        })
+          .png()
+          .toBuffer();
+
+        const finalBuffer = await sharp(background)
+          .composite([
+            // Sombra (debajo del producto)
+            {
+              input: shadowComposed,
+              left,
+              top: top + SHADOW_OFFSET_Y,
+              blend: "multiply",
+            },
+            // Producto sin fondo
+            { input: productResized, left, top },
+          ])
+          .jpeg({ quality: 92, mozjpeg: true })
+          .toBuffer();
+
+        const filename = `ai-catalog-${Date.now()}-${Math.random().toString(36).slice(2, 8)}.jpg`;
+        const url = await uploadToR2(finalBuffer.buffer as ArrayBuffer, filename, "image/jpeg");
 
         return new Response(JSON.stringify({ url }), {
           status: 201, headers: { ...corsHeaders, "Content-Type": "application/json" },
