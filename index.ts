@@ -3699,11 +3699,24 @@ Devolvé únicamente un JSON válido con esta forma:
 
         // Pollinations.ai — gratis, sin API key, usa FLUX
         const encodedPrompt = encodeURIComponent(prompt);
-        const pollinationsUrl = `https://image.pollinations.ai/prompt/${encodedPrompt}?width=1024&height=1024&model=flux&nologo=true&seed=${Date.now()}`;
+        const seed = Math.floor(Math.random() * 999999);
+        const pollinationsUrl = `https://image.pollinations.ai/prompt/${encodedPrompt}?width=1024&height=1024&model=flux&nologo=true&seed=${seed}`;
 
-        const imgRes = await fetch(pollinationsUrl, { signal: AbortSignal.timeout(60_000) });
+        console.log("[generar-imagen] Llamando Pollinations...");
+        let imgRes: Response;
+        try {
+          imgRes = await fetch(pollinationsUrl, { signal: AbortSignal.timeout(90_000) });
+        } catch (fetchErr: any) {
+          console.error("[generar-imagen] Pollinations fetch error:", fetchErr?.message ?? fetchErr);
+          return new Response(JSON.stringify({ error: "No se pudo generar la imagen. Intentá de nuevo." }), {
+            status: 502, headers: { ...corsHeaders, "Content-Type": "application/json" },
+          });
+        }
+
+        console.log("[generar-imagen] Pollinations status:", imgRes.status, imgRes.headers.get("content-type"));
         if (!imgRes.ok || !imgRes.headers.get("content-type")?.startsWith("image/")) {
-          console.error("[generar-imagen] Pollinations error", imgRes.status);
+          const body = await imgRes.text().catch(() => "");
+          console.error("[generar-imagen] Pollinations bad response:", imgRes.status, body.slice(0, 200));
           return new Response(JSON.stringify({ error: "No se pudo generar la imagen. Intentá de nuevo." }), {
             status: 502, headers: { ...corsHeaders, "Content-Type": "application/json" },
           });
