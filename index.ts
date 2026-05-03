@@ -3683,11 +3683,11 @@ Devolvé únicamente un JSON válido con esta forma:
         const photoBuffer = Buffer.from(await photoFile.arrayBuffer());
 
         // 1. BiRefNet (HuggingFace) — remover fondo
-        console.log("[generar-imagen] Llamando BiRefNet...");
+        console.log("[generar-imagen] Llamando RMBG-1.4...");
         let bgRemovedBuffer: Buffer;
         try {
           const hfRes = await fetch(
-            "https://api-inference.huggingface.co/models/ZhengPeng7/BiRefNet",
+            "https://api-inference.huggingface.co/models/briaai/RMBG-1.4",
             {
               method: "POST",
               headers: {
