@@ -3361,10 +3361,13 @@ https://reportesreconquista.com`;
         const tipo = tipoRaw === "servicio" ? "servicio" : "producto";
         let foto: string | null = null;
         const photoFile = formData.get("photo") as File | null;
+        const generatedPhotoUrl = formData.get("generatedPhotoUrl") as string | null;
         if (photoFile && photoFile.size > 0) {
           const ext = photoFile.name.split(".").pop()?.toLowerCase() || "jpg";
           const filename = `producto_${crypto.randomUUID()}.${ext}`;
           foto = await uploadToR2(await photoFile.arrayBuffer(), filename, photoFile.type || "image/jpeg");
+        } else if (generatedPhotoUrl) {
+          foto = generatedPhotoUrl;
         }
         if (!comercio.isPremium) {
           const count = await prisma.producto.count({
@@ -3800,10 +3803,13 @@ Devolvé únicamente un JSON válido con esta forma:
         let fotoUrl: string | null | undefined;
         const photoFile = formData.get("photo") as File | null;
         const clearPhoto = formData.get("clearPhoto") as string | null;
+        const generatedPhotoUrl = formData.get("generatedPhotoUrl") as string | null;
         if (photoFile && photoFile.size > 0) {
           const ext = photoFile.name.split(".").pop()?.toLowerCase() || "jpg";
           const filename = `producto_${crypto.randomUUID()}.${ext}`;
           fotoUrl = await uploadToR2(await photoFile.arrayBuffer(), filename, photoFile.type || "image/jpeg");
+        } else if (generatedPhotoUrl) {
+          fotoUrl = generatedPhotoUrl;
         } else if (clearPhoto === "1") {
           fotoUrl = null;
         }
