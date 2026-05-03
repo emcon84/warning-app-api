@@ -6,6 +6,7 @@ import { OBRAS_SOCIALES } from "./lib/constants";
 import { createClerkClient, verifyToken } from "@clerk/backend";
 import { PrismaClient } from "@prisma/client";
 import { Resend } from "resend";
+import { S3Client, PutObjectCommand } from "@aws-sdk/client-s3";
 
 // Declaración global para que TypeScript reconozca Bun
 declare global {
@@ -280,6 +281,26 @@ interface CreateReportBody {
 const uploadsDir = join(import.meta.dir, "uploads");
 if (!existsSync(uploadsDir)) {
   mkdirSync(uploadsDir, { recursive: true });
+}
+
+// ─── Cloudflare R2 ────────────────────────────────────────────────────────────
+const r2Client = new S3Client({
+  region: "auto",
+  endpoint: `https://${process.env.R2_ACCOUNT_ID}.r2.cloudflarestorage.com`,
+  credentials: {
+    accessKeyId: process.env.R2_ACCESS_KEY_ID || "",
+    secretAccessKey: process.env.R2_SECRET_ACCESS_KEY || "",
+  },
+});
+
+async function uploadToR2(buffer: ArrayBuffer, filename: string, contentType: string): Promise<string> {
+  await r2Client.send(new PutObjectCommand({
+    Bucket: process.env.R2_BUCKET_NAME || "warning-app-images",
+    Key: filename,
+    Body: Buffer.from(buffer),
+    ContentType: contentType,
+  }));
+  return `${process.env.R2_PUBLIC_URL}/${filename}`;
 }
 
 // Crear tablas de ofertas si no existen
@@ -595,9 +616,8 @@ const server = Bun.serve({
           for (const photo of photos) {
             const ext = photo.name.split(".").pop() || "jpg";
             const filename = `${Date.now()}-${Math.random().toString(36).substr(2, 9)}.${ext}`;
-            const filePath = join(uploadsDir, filename);
-            await Bun.write(filePath, await photo.arrayBuffer());
-            photoPaths.push(`/uploads/${filename}`);
+            const buffer = await photo.arrayBuffer();
+            photoPaths.push(await uploadToR2(buffer, filename, photo.type || "image/jpeg"));
           }
         } else {
           // Manejar JSON (sin imagen o con base64 - retrocompatibilidad)
@@ -819,9 +839,8 @@ const server = Bun.serve({
           // Guardar las nuevas fotos
           for (const file of photoFiles) {
             const filename = `${Date.now()}-${Math.random().toString(36).substring(7)}.jpg`;
-            const filepath = join(uploadsDir, filename);
-            await Bun.write(filepath, await file.arrayBuffer());
-            photoPaths.push(`/uploads/${filename}`);
+            const buffer = await file.arrayBuffer();
+            photoPaths.push(await uploadToR2(buffer, filename, file.type || "image/jpeg"));
           }
         } else {
           // Mantener las fotos existentes si no se subieron nuevas
@@ -2389,9 +2408,8 @@ out 1;`;
           if (photoFile && photoFile.size > 0) {
             const ext = photoFile.name.split(".").pop() || "jpg";
             const filename = `${Date.now()}-${Math.random().toString(36).substr(2, 9)}.${ext}`;
-            const filePath = join(uploadsDir, filename);
-            await Bun.write(filePath, photoFile);
-            photoPath = `/uploads/${filename}`;
+            const buffer = await photoFile.arrayBuffer();
+            photoPath = await uploadToR2(buffer, filename, photoFile.type || "image/jpeg");
           }
         } else {
           const body = await req.json();
@@ -2451,14 +2469,10 @@ out 1;`;
           validUntil = (formData.get("validUntil") as string) || null;
           const photoFile = formData.get("photo") as File | null;
           if (photoFile && photoFile.size > 0) {
-            const uploadsDir = process.env.UPLOADS_DIR || "./uploads";
             const ext = photoFile.name.split(".").pop() || "jpg";
             const filename = `offer_${crypto.randomUUID()}.${ext}`;
-            await Bun.write(
-              `${uploadsDir}/${filename}`,
-              await photoFile.arrayBuffer(),
-            );
-            photoPath = `/uploads/${filename}`;
+            const buffer = await photoFile.arrayBuffer();
+            photoPath = await uploadToR2(buffer, filename, photoFile.type || "image/jpeg");
           } else {
             photoPath = undefined; // no cambiar
           }
@@ -2898,11 +2912,7 @@ https://reportesreconquista.com`;
         if (mainPhoto && mainPhoto.size > 0) {
           const ext = mainPhoto.name.split(".").pop()?.toLowerCase() || "jpg";
           const filename = `comercio_${crypto.randomUUID()}.${ext}`;
-          await Bun.write(
-            join(uploadsDir, filename),
-            await mainPhoto.arrayBuffer(),
-          );
-          fotoUrl = "/uploads/" + filename;
+          fotoUrl = await uploadToR2(await mainPhoto.arrayBuffer(), filename, mainPhoto.type || "image/jpeg");
         }
         // galería
         const fotos: string[] = [];
@@ -2911,8 +2921,7 @@ https://reportesreconquista.com`;
           if (!f || f.size === 0) break;
           const ext = f.name.split(".").pop()?.toLowerCase() || "jpg";
           const filename = `comercio_${crypto.randomUUID()}.${ext}`;
-          await Bun.write(join(uploadsDir, filename), await f.arrayBuffer());
-          fotos.push("/uploads/" + filename);
+          fotos.push(await uploadToR2(await f.arrayBuffer(), filename, f.type || "image/jpeg"));
         }
         const totalComercies = await prisma.comercio.count();
         const isFounder = totalComercies < 20;
@@ -3074,11 +3083,7 @@ https://reportesreconquista.com`;
         if (mainPhoto && mainPhoto.size > 0) {
           const ext = mainPhoto.name.split(".").pop()?.toLowerCase() || "jpg";
           const filename = `comercio_${crypto.randomUUID()}.${ext}`;
-          await Bun.write(
-            join(uploadsDir, filename),
-            await mainPhoto.arrayBuffer(),
-          );
-          updateData.foto = "/uploads/" + filename;
+          updateData.foto = await uploadToR2(await mainPhoto.arrayBuffer(), filename, mainPhoto.type || "image/jpeg");
         }
         // galería — agrega a las existentes
         const nuevasFotos: string[] = [];
@@ -3087,8 +3092,7 @@ https://reportesreconquista.com`;
           if (!f || f.size === 0) break;
           const ext = f.name.split(".").pop()?.toLowerCase() || "jpg";
           const filename = `comercio_${crypto.randomUUID()}.${ext}`;
-          await Bun.write(join(uploadsDir, filename), await f.arrayBuffer());
-          nuevasFotos.push("/uploads/" + filename);
+          nuevasFotos.push(await uploadToR2(await f.arrayBuffer(), filename, f.type || "image/jpeg"));
         }
         if (nuevasFotos.length > 0) {
           updateData.fotos = [...comercioExistente.fotos, ...nuevasFotos];
@@ -3161,11 +3165,7 @@ https://reportesreconquista.com`;
         if (photoFile && photoFile.size > 0) {
           const ext = photoFile.name.split(".").pop()?.toLowerCase() || "jpg";
           const filename = `comercio_${crypto.randomUUID()}.${ext}`;
-          await Bun.write(
-            join(uploadsDir, filename),
-            await photoFile.arrayBuffer(),
-          );
-          fotoUrl = "/uploads/" + filename;
+          fotoUrl = await uploadToR2(await photoFile.arrayBuffer(), filename, photoFile.type || "image/jpeg");
         }
         const offer = await prisma.comercioOffer.create({
           data: {
@@ -3296,11 +3296,7 @@ https://reportesreconquista.com`;
         if (photoFile && photoFile.size > 0) {
           const ext = photoFile.name.split(".").pop()?.toLowerCase() || "jpg";
           const filename = `comercio_${crypto.randomUUID()}.${ext}`;
-          await Bun.write(
-            join(uploadsDir, filename),
-            await photoFile.arrayBuffer(),
-          );
-          fotoUrl = "/uploads/" + filename;
+          fotoUrl = await uploadToR2(await photoFile.arrayBuffer(), filename, photoFile.type || "image/jpeg");
         } else if (clearPhoto === "1") {
           fotoUrl = null;
         }
@@ -3368,11 +3364,7 @@ https://reportesreconquista.com`;
         if (photoFile && photoFile.size > 0) {
           const ext = photoFile.name.split(".").pop()?.toLowerCase() || "jpg";
           const filename = `producto_${crypto.randomUUID()}.${ext}`;
-          await Bun.write(
-            join(uploadsDir, filename),
-            await photoFile.arrayBuffer(),
-          );
-          foto = "/uploads/" + filename;
+          foto = await uploadToR2(await photoFile.arrayBuffer(), filename, photoFile.type || "image/jpeg");
         }
         if (!comercio.isPremium) {
           const count = await prisma.producto.count({
@@ -3631,6 +3623,131 @@ Devolvé únicamente un JSON válido con esta forma:
         });
       }
 
+      // POST /api/comercios/me/productos/generar-imagen — genera imagen de catálogo con DALL-E 3
+      if (
+        path === "/api/comercios/me/productos/generar-imagen" &&
+        method === "POST"
+      ) {
+        if (!checkStrictRateLimit(req))
+          return new Response(JSON.stringify({ error: "Demasiadas solicitudes." }), {
+            status: 429, headers: { ...corsHeaders, "Content-Type": "application/json" },
+          });
+
+        const clerkUserId = await verifyClerkToken(req).catch(() => null);
+        if (!clerkUserId)
+          return new Response(JSON.stringify({ error: "No autorizado" }), {
+            status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" },
+          });
+
+        const comercio = await prisma.comercio.findUnique({
+          where: { clerkUserId },
+          select: { id: true, rubro: true, isPremium: true, isFounder: true },
+        });
+        if (!comercio)
+          return new Response(JSON.stringify({ error: "No tenés un comercio registrado" }), {
+            status: 404, headers: { ...corsHeaders, "Content-Type": "application/json" },
+          });
+
+        if (!process.env.OPENAI_API_KEY)
+          return new Response(JSON.stringify({ error: "Generación de imágenes no disponible." }), {
+            status: 503, headers: { ...corsHeaders, "Content-Type": "application/json" },
+          });
+
+        // Límites por plan (diario)
+        let dailyLimit = 1;
+        let planName = "Gratis";
+        if (comercio.isFounder) { dailyLimit = 20; planName = "Master"; }
+        else if (comercio.isPremium) { dailyLimit = 5; planName = "Premium"; }
+
+        const today = new Date().toISOString().slice(0, 10);
+        const usage = await incrementProductAiUsage(`img-gen:${comercio.id}`, comercio.id, today, dailyLimit);
+        if (usage === null)
+          return new Response(JSON.stringify({
+            error: "IMG_DAILY_LIMIT_REACHED",
+            message: `Alcanzaste el límite diario de ${dailyLimit} imagen${dailyLimit > 1 ? "es" : ""} generada${dailyLimit > 1 ? "s" : ""} con IA de tu plan ${planName}.`,
+          }), { status: 429, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+
+        const body = await req.json().catch(() => ({})) as { nombre?: string; descripcion?: string; tipo?: string };
+        const nombre = sanitizeText(body.nombre, 150)?.trim();
+        if (!nombre)
+          return new Response(JSON.stringify({ error: "El nombre del producto es obligatorio" }), {
+            status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" },
+          });
+
+        const descripcion = sanitizeText(body.descripcion, 300)?.trim() || "";
+        const tipo = body.tipo === "servicio" ? "servicio" : "producto";
+        const rubro = comercio.rubro || "comercio";
+
+        // Prompt contextual en inglés para mejores resultados con DALL-E 3
+        const rubroStyle: Record<string, string> = {
+          "Restaurante/Comida":        "professional food photography, appetizing presentation, warm natural lighting, shallow depth of field",
+          "Almacén/Despensa":          "product shot on wooden surface, warm store ambiance, soft natural light",
+          "Farmacia":                  "clean clinical white background, professional medical/pharmacy product photography",
+          "Salud/Bienestar":           "clean minimalist background, wellness aesthetic, soft natural light",
+          "Electrónica":               "tech product photography, dark gradient background, dramatic studio lighting",
+          "Tecnología/Informática":    "tech product photography, sleek dark or gradient background, studio lighting",
+          "Indumentaria":              "fashion product flat lay or display, clean light background, editorial style",
+          "Calzado":                   "shoe product photography, clean white or gradient background, studio lighting",
+          "Peluquería/Estética":       "beauty product photography, elegant pastel background, soft light",
+          "Mueblería":                 "furniture product in a modern interior setting, architectural photography",
+          "Deportes":                  "sports product photography, dynamic energetic background, studio lighting",
+          "Veterinaria":               "pet product photography, clean white background, soft natural light",
+          "Automotriz/Mecánica":       "automotive product photography, dark industrial background, dramatic lighting",
+          "Joyería/Relojería":         "luxury jewelry/watch product photography, black velvet or marble background, macro detail lighting",
+          "Librería/Papelería":        "stationery product flat lay, light clean background, overhead shot",
+          "Fotografía/Arte":           "creative product photography, artistic composition, professional studio",
+        };
+        const style = rubroStyle[rubro] || "professional product catalog photography, clean studio background, soft lighting";
+        const descPart = descripcion ? ` Description: ${descripcion}.` : "";
+        const prompt = `Professional commercial catalog image of: ${nombre}.${descPart} Store type: ${rubro}. Style: ${style}. Isolated product, photorealistic, high quality, no text, no watermarks, no people.`;
+
+        const dalleRes = await fetch("https://api.openai.com/v1/images/generations", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${process.env.OPENAI_API_KEY}`,
+          },
+          body: JSON.stringify({
+            model: "dall-e-3",
+            prompt,
+            n: 1,
+            size: "1024x1024",
+            quality: "standard",
+            response_format: "url",
+          }),
+        });
+
+        if (!dalleRes.ok) {
+          const err = await dalleRes.text().catch(() => "");
+          console.error("[generar-imagen] DALL-E error", err);
+          return new Response(JSON.stringify({ error: "No se pudo generar la imagen. Intentá de nuevo." }), {
+            status: 502, headers: { ...corsHeaders, "Content-Type": "application/json" },
+          });
+        }
+
+        const dalleData = await dalleRes.json() as { data: { url: string }[] };
+        const imageUrl = dalleData.data?.[0]?.url;
+        if (!imageUrl)
+          return new Response(JSON.stringify({ error: "Respuesta inesperada del generador de imágenes." }), {
+            status: 502, headers: { ...corsHeaders, "Content-Type": "application/json" },
+          });
+
+        // Descargar y guardar la imagen localmente
+        const imgRes = await fetch(imageUrl);
+        if (!imgRes.ok)
+          return new Response(JSON.stringify({ error: "No se pudo descargar la imagen generada." }), {
+            status: 502, headers: { ...corsHeaders, "Content-Type": "application/json" },
+          });
+
+        const imgBuffer = await imgRes.arrayBuffer();
+        const filename = `ai-catalog-${Date.now()}-${Math.random().toString(36).slice(2, 8)}.png`;
+        const url = await uploadToR2(imgBuffer, filename, "image/png");
+
+        return new Response(JSON.stringify({ url }), {
+          status: 201, headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+
       // PATCH /api/comercios/me/productos/:id — editar o toggle producto (requiere auth)
       if (
         path.match(/^\/api\/comercios\/me\/productos\/[^/]+$/) &&
@@ -3701,11 +3818,7 @@ Devolvé únicamente un JSON válido con esta forma:
         if (photoFile && photoFile.size > 0) {
           const ext = photoFile.name.split(".").pop()?.toLowerCase() || "jpg";
           const filename = `producto_${crypto.randomUUID()}.${ext}`;
-          await Bun.write(
-            join(uploadsDir, filename),
-            await photoFile.arrayBuffer(),
-          );
-          fotoUrl = "/uploads/" + filename;
+          fotoUrl = await uploadToR2(await photoFile.arrayBuffer(), filename, photoFile.type || "image/jpeg");
         } else if (clearPhoto === "1") {
           fotoUrl = null;
         }
@@ -4141,11 +4254,7 @@ Devolvé únicamente un JSON válido con esta forma:
         if (photoFile && photoFile.size > 0) {
           const ext = photoFile.name.split(".").pop()?.toLowerCase() || "jpg";
           const filename = `empleado_${crypto.randomUUID()}.${ext}`;
-          await Bun.write(
-            join(uploadsDir, filename),
-            await photoFile.arrayBuffer(),
-          );
-          fotoUrl = "/uploads/" + filename;
+          fotoUrl = await uploadToR2(await photoFile.arrayBuffer(), filename, photoFile.type || "image/jpeg");
         }
         const empleado = await prisma.empleado.create({
           data: {
@@ -4284,11 +4393,7 @@ Devolvé únicamente un JSON válido con esta forma:
         if (mainPhoto && mainPhoto.size > 0) {
           const ext = mainPhoto.name.split(".").pop()?.toLowerCase() || "jpg";
           const filename = `empleado_${crypto.randomUUID()}.${ext}`;
-          await Bun.write(
-            join(uploadsDir, filename),
-            await mainPhoto.arrayBuffer(),
-          );
-          updateData.foto = "/uploads/" + filename;
+          updateData.foto = await uploadToR2(await mainPhoto.arrayBuffer(), filename, mainPhoto.type || "image/jpeg");
         }
         const empleado = await prisma.empleado.update({
           where: { clerkUserId },
@@ -6197,9 +6302,7 @@ Devolvé únicamente un JSON válido con esta forma:
         }
         const ext = photoFile.name.split(".").pop() || "jpg";
         const filename = `professional_${crypto.randomUUID()}.${ext}`;
-        const filePath = join(uploadsDir, filename);
-        await Bun.write(filePath, await photoFile.arrayBuffer());
-        const fotoUrl = `/uploads/${filename}`;
+        const fotoUrl = await uploadToR2(await photoFile.arrayBuffer(), filename, photoFile.type || "image/jpeg");
         const professional = await prisma.professional.update({
           where: { id: proForPhoto.id },
           data: { foto: fotoUrl },
@@ -6227,8 +6330,7 @@ Devolvé únicamente un JSON válido con esta forma:
           });
         const ext = photoFile.name.split(".").pop()?.toLowerCase() || "jpg";
         const filename = "professional_gallery_" + crypto.randomUUID() + "." + ext;
-        await Bun.write(join(uploadsDir, filename), await photoFile.arrayBuffer());
-        const fotoUrl = "/uploads/" + filename;
+        const fotoUrl = await uploadToR2(await photoFile.arrayBuffer(), filename, photoFile.type || "image/jpeg");
         const pro = clerkUserId
           ? await prisma.professional.findUnique({ where: { clerkUserId } })
           : await prisma.professional.findUnique({ where: { id: proFotosCode! } });
