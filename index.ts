@@ -3648,10 +3648,6 @@ Devolvé únicamente un JSON válido con esta forma:
             status: 404, headers: { ...corsHeaders, "Content-Type": "application/json" },
           });
 
-        if (!process.env.GEMINI_API_KEY)
-          return new Response(JSON.stringify({ error: "Generación de imágenes no disponible." }), {
-            status: 503, headers: { ...corsHeaders, "Content-Type": "application/json" },
-          });
 
         // Límites por plan (diario)
         let dailyLimit = 1;
@@ -3678,7 +3674,7 @@ Devolvé únicamente un JSON válido con esta forma:
         const tipo = body.tipo === "servicio" ? "servicio" : "producto";
         const rubro = comercio.rubro || "comercio";
 
-        // Prompt contextual en inglés para mejores resultados con Gemini
+        // Prompt contextual en inglés (Pollinations/FLUX)
         const rubroStyle: Record<string, string> = {
           "Restaurante/Comida":        "professional food photography, appetizing presentation, warm natural lighting, shallow depth of field",
           "Almacén/Despensa":          "product shot on wooden surface, warm store ambiance, soft natural light",
@@ -3701,40 +3697,23 @@ Devolvé únicamente un JSON válido con esta forma:
         const descPart = descripcion ? ` Description: ${descripcion}.` : "";
         const prompt = `Professional commercial catalog image of: ${nombre}.${descPart} Store type: ${rubro}. Style: ${style}. Isolated product, photorealistic, high quality, no text, no watermarks, no people.`;
 
-        const geminiRes = await fetch(
-          `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-preview-image-generation:generateContent?key=${process.env.GEMINI_API_KEY}`,
-          {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              contents: [{ parts: [{ text: prompt }] }],
-              generationConfig: { responseModalities: ["IMAGE", "TEXT"] },
-            }),
-          },
-        );
+        // Pollinations.ai — gratis, sin API key, usa FLUX
+        const encodedPrompt = encodeURIComponent(prompt);
+        const pollinationsUrl = `https://image.pollinations.ai/prompt/${encodedPrompt}?width=1024&height=1024&model=flux&nologo=true&seed=${Date.now()}`;
 
-        if (!geminiRes.ok) {
-          const err = await geminiRes.text().catch(() => "");
-          console.error("[generar-imagen] Gemini error", err);
+        const imgRes = await fetch(pollinationsUrl, { signal: AbortSignal.timeout(60_000) });
+        if (!imgRes.ok || !imgRes.headers.get("content-type")?.startsWith("image/")) {
+          console.error("[generar-imagen] Pollinations error", imgRes.status);
           return new Response(JSON.stringify({ error: "No se pudo generar la imagen. Intentá de nuevo." }), {
             status: 502, headers: { ...corsHeaders, "Content-Type": "application/json" },
           });
         }
 
-        type GeminiPart = { inlineData?: { mimeType: string; data: string }; text?: string };
-        type GeminiResponse = { candidates?: { content?: { parts?: GeminiPart[] } }[] };
-        const geminiData = await geminiRes.json() as GeminiResponse;
-        const imagePart = geminiData.candidates?.[0]?.content?.parts?.find((p) => p.inlineData);
-        if (!imagePart?.inlineData)
-          return new Response(JSON.stringify({ error: "No se pudo generar la imagen. Intentá de nuevo." }), {
-            status: 502, headers: { ...corsHeaders, "Content-Type": "application/json" },
-          });
-
-        const imgBuffer = Buffer.from(imagePart.inlineData.data, "base64");
-        const mimeType = imagePart.inlineData.mimeType || "image/png";
-        const ext = mimeType.includes("jpeg") ? "jpg" : "png";
+        const imgBuffer = await imgRes.arrayBuffer();
+        const mimeType = imgRes.headers.get("content-type") || "image/jpeg";
+        const ext = mimeType.includes("png") ? "png" : "jpg";
         const filename = `ai-catalog-${Date.now()}-${Math.random().toString(36).slice(2, 8)}.${ext}`;
-        const url = await uploadToR2(imgBuffer.buffer as ArrayBuffer, filename, mimeType);
+        const url = await uploadToR2(imgBuffer, filename, mimeType);
 
         return new Response(JSON.stringify({ url }), {
           status: 201, headers: { ...corsHeaders, "Content-Type": "application/json" },
