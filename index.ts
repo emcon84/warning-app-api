@@ -3682,33 +3682,65 @@ Devolvé únicamente un JSON válido con esta forma:
 
         const photoBuffer = Buffer.from(await photoFile.arrayBuffer());
 
-        // 1. BiRefNet (HuggingFace) — remover fondo
-        console.log("[generar-imagen] Llamando RMBG-1.4...");
+        // 1. BRIA RMBG-1.4 via Gradio Space — remover fondo
+        const SPACE = "https://briaai-bria-rmbg-1-4.hf.space";
+        console.log("[generar-imagen] Subiendo imagen al Space BRIA...");
         let bgRemovedBuffer: Buffer;
         try {
-          const hfRes = await fetch(
-            "https://api-inference.huggingface.co/models/briaai/RMBG-1.4",
-            {
-              method: "POST",
-              headers: {
-                Authorization: `Bearer ${process.env.HF_API_KEY}`,
-                "Content-Type": "application/octet-stream",
-                Accept: "image/png",
-              },
-              body: photoBuffer,
-              signal: AbortSignal.timeout(60_000),
-            },
-          );
-          if (!hfRes.ok) {
-            const err = await hfRes.text().catch(() => "");
-            console.error("[generar-imagen] BiRefNet error", hfRes.status, err.slice(0, 200));
+          // Paso A: subir la imagen al Space
+          const uploadForm = new FormData();
+          uploadForm.append("files", new Blob([photoBuffer], { type: photoFile.type || "image/jpeg" }), "product.jpg");
+          const uploadRes = await fetch(`${SPACE}/upload`, {
+            method: "POST",
+            headers: { Authorization: `Bearer ${process.env.HF_API_KEY}` },
+            body: uploadForm,
+            signal: AbortSignal.timeout(30_000),
+          });
+          if (!uploadRes.ok) {
+            const err = await uploadRes.text().catch(() => "");
+            console.error("[generar-imagen] Space upload error", uploadRes.status, err.slice(0, 200));
             return new Response(JSON.stringify({ error: "No se pudo procesar la imagen. Intentá de nuevo." }), {
               status: 502, headers: { ...corsHeaders, "Content-Type": "application/json" },
             });
           }
-          bgRemovedBuffer = Buffer.from(await hfRes.arrayBuffer());
+          const uploadedPaths = await uploadRes.json() as string[];
+          const uploadedPath = uploadedPaths[0];
+
+          // Paso B: llamar al predict con la imagen subida
+          console.log("[generar-imagen] Llamando RMBG predict...");
+          const predictRes = await fetch(`${SPACE}/run/predict`, {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              Authorization: `Bearer ${process.env.HF_API_KEY}`,
+            },
+            body: JSON.stringify({ data: [{ path: uploadedPath, orig_name: "product.jpg", mime_type: photoFile.type || "image/jpeg" }] }),
+            signal: AbortSignal.timeout(60_000),
+          });
+          if (!predictRes.ok) {
+            const err = await predictRes.text().catch(() => "");
+            console.error("[generar-imagen] Space predict error", predictRes.status, err.slice(0, 200));
+            return new Response(JSON.stringify({ error: "No se pudo procesar la imagen. Intentá de nuevo." }), {
+              status: 502, headers: { ...corsHeaders, "Content-Type": "application/json" },
+            });
+          }
+          type GradioResult = { data: { path?: string; url?: string }[] };
+          const predictData = await predictRes.json() as GradioResult;
+          const resultUrl = predictData.data?.[0]?.url || (predictData.data?.[0]?.path ? `${SPACE}/file=${predictData.data[0].path}` : null);
+          if (!resultUrl) {
+            console.error("[generar-imagen] Space sin resultado", JSON.stringify(predictData).slice(0, 200));
+            return new Response(JSON.stringify({ error: "No se pudo procesar la imagen. Intentá de nuevo." }), {
+              status: 502, headers: { ...corsHeaders, "Content-Type": "application/json" },
+            });
+          }
+
+          // Paso C: descargar el PNG transparente resultante
+          const imgDlRes = await fetch(resultUrl, { signal: AbortSignal.timeout(30_000) });
+          if (!imgDlRes.ok) throw new Error(`Download failed: ${imgDlRes.status}`);
+          bgRemovedBuffer = Buffer.from(await imgDlRes.arrayBuffer());
+          console.log("[generar-imagen] Fondo removido OK, tamaño:", bgRemovedBuffer.length);
         } catch (e: any) {
-          console.error("[generar-imagen] BiRefNet fetch error:", e?.message);
+          console.error("[generar-imagen] Space error:", e?.message);
           return new Response(JSON.stringify({ error: "No se pudo procesar la imagen. Intentá de nuevo." }), {
             status: 502, headers: { ...corsHeaders, "Content-Type": "application/json" },
           });
