@@ -3728,15 +3728,24 @@ Devolvé únicamente un JSON válido con esta forma:
         const left = Math.round((SIZE - pw) / 2);
         const top  = Math.round((SIZE - ph) / 2) - 20;
 
-        // Sombra: extraer alpha, expandir y difuminar
-        const shadowLayer = await sharp(productResized)
+        // Sombra: canal alpha → blur → capa RGBA negra semitransparente
+        const { data: alphaRaw, info: alphaInfo } = await sharp(productResized)
           .extractChannel("alpha")
-          .toBuffer();
-
-        const shadowComposed = await sharp(shadowLayer)
-          .resize(pw, ph)
           .blur(SHADOW_BLUR)
-          .toBuffer();
+          .raw()
+          .toBuffer({ resolveWithObject: true });
+
+        const SHADOW_OPACITY = 0.38;
+        const shadowRgba = Buffer.alloc(alphaInfo.width * alphaInfo.height * 4);
+        for (let i = 0; i < alphaRaw.length; i++) {
+          shadowRgba[i * 4]     = 0;
+          shadowRgba[i * 4 + 1] = 0;
+          shadowRgba[i * 4 + 2] = 0;
+          shadowRgba[i * 4 + 3] = Math.round((alphaRaw as Buffer)[i] * SHADOW_OPACITY);
+        }
+        const shadowLayer = await sharp(shadowRgba, {
+          raw: { width: alphaInfo.width, height: alphaInfo.height, channels: 4 },
+        }).png().toBuffer();
 
         // Fondo crema cálido
         const background = await sharp({
@@ -3747,15 +3756,8 @@ Devolvé únicamente un JSON válido con esta forma:
 
         const finalBuffer = await sharp(background)
           .composite([
-            // Sombra (debajo del producto)
-            {
-              input: shadowComposed,
-              left,
-              top: top + SHADOW_OFFSET_Y,
-              blend: "multiply",
-            },
-            // Producto sin fondo
-            { input: productResized, left, top },
+            { input: shadowLayer, left, top: top + SHADOW_OFFSET_Y, blend: "over" },
+            { input: productResized, left, top, blend: "over" },
           ])
           .jpeg({ quality: 92, mozjpeg: true })
           .toBuffer();
