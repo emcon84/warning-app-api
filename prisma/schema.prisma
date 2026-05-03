@@ -285,35 +285,52 @@ model PublicReview {
 }
 
 model Comercio {
-  id          String             @id @default(cuid())
-  clerkUserId String             @unique
-  nombre      String
-  rubro       String
-  slug        String             @unique
-  descripcion String?
-  direccion   String?
-  barrio      String
-  whatsapp    String
-  telefono    String?
-  horario     String?
-  foto        String?
-  logo        String?
-  fotos       String[]           @default([])
-  activo      Boolean            @default(true)
-  isPremium   Boolean            @default(false)
-  isFounder   Boolean            @default(false)
-  recommendations Int        @default(0)
-  createdAt   DateTime           @default(now())
-  updatedAt   DateTime           @updatedAt
-  offers      ComercioOffer[]
-  productos   Producto[]
-  vacantes    Vacante[]
-  eventos     ComercioEventDay[]
-  aiUsage     ProductAiUsageDay[]
+  id              String              @id @default(cuid())
+  clerkUserId     String              @unique
+  nombre          String
+  rubro           String
+  slug            String              @unique
+  descripcion     String?
+  direccion       String?
+  barrio          String
+  whatsapp        String
+  telefono        String?
+  horario         String?
+  foto            String?
+  logo            String?
+  fotos           String[]            @default([])
+  activo          Boolean             @default(true)
+  isPremium       Boolean             @default(false)
+  isFounder       Boolean             @default(false)
+  recommendations Int                 @default(0)
+  ratingAvg       Float               @default(0)
+  ratingCount     Int                 @default(0)
+  createdAt       DateTime            @default(now())
+  updatedAt       DateTime            @updatedAt
+  offers          ComercioOffer[]
+  productos       Producto[]
+  vacantes        Vacante[]
+  eventos         ComercioEventDay[]
+  aiUsage         ProductAiUsageDay[]
+  reviews         ComercioReview[]
 
   @@index([barrio])
   @@index([rubro])
   @@index([activo])
+}
+
+model ComercioReview {
+  id          String   @id @default(cuid())
+  comercioId  String
+  clerkUserId String?
+  score       Float
+  createdAt   DateTime @default(now())
+  comercio    Comercio @relation(fields: [comercioId], references: [id], onDelete: Cascade)
+
+  @@unique([comercioId, clerkUserId])
+  @@index([comercioId])
+  @@index([createdAt])
+  @@index([clerkUserId])
 }
 
 model ProductAiUsageDay {

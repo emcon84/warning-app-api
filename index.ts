@@ -3874,6 +3874,91 @@ Devolvé únicamente un JSON válido con esta forma:
       }
 
 
+      // GET /api/comercios/:slug/reviews — calificaciones públicas
+      if (
+        path.match(/^\/api\/comercios\/[^/]+\/reviews$/) &&
+        method === "GET"
+      ) {
+        const slug = path.split("/api/comercios/")[1].replace("/reviews", "");
+        const comercio = await prisma.comercio.findUnique({ where: { slug }, select: { id: true } });
+        if (!comercio)
+          return new Response(JSON.stringify({ error: "No encontrado" }), {
+            status: 404, headers: { ...corsHeaders, "Content-Type": "application/json" },
+          });
+        const reviews = await prisma.comercioReview.findMany({
+          where: { comercioId: comercio.id },
+          orderBy: { createdAt: "desc" },
+          select: { id: true, score: true, createdAt: true },
+        });
+        return new Response(JSON.stringify(reviews), {
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+
+      // POST /api/comercios/:slug/reviews — calificar comercio (requiere auth)
+      if (
+        path.match(/^\/api\/comercios\/[^/]+\/reviews$/) &&
+        method === "POST"
+      ) {
+        if (!checkStrictRateLimit(req)) {
+          return new Response(
+            JSON.stringify({ error: "Demasiadas solicitudes. Intentá en un momento." }),
+            { status: 429, headers: { ...corsHeaders, "Content-Type": "application/json", "Retry-After": "60" } },
+          );
+        }
+        const slug = path.split("/api/comercios/")[1].replace("/reviews", "");
+        const comercio = await prisma.comercio.findUnique({ where: { slug }, select: { id: true } });
+        if (!comercio)
+          return new Response(JSON.stringify({ error: "No encontrado" }), {
+            status: 404, headers: { ...corsHeaders, "Content-Type": "application/json" },
+          });
+
+        let clerkUserId: string | null = null;
+        try { clerkUserId = await verifyClerkToken(req); } catch {}
+        if (!clerkUserId)
+          return new Response(
+            JSON.stringify({ error: "Tenés que iniciar sesión para calificar" }),
+            { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } },
+          );
+
+        const body = await req.json();
+        const { score } = body;
+        if (!score || score < 1 || score > 5)
+          return new Response(JSON.stringify({ error: "Datos inválidos" }), {
+            status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" },
+          });
+
+        let review;
+        try {
+          review = await prisma.comercioReview.upsert({
+            where: { comercioId_clerkUserId: { comercioId: comercio.id, clerkUserId } },
+            update: { score: Math.min(5, Math.max(1, Number(score))) },
+            create: { comercioId: comercio.id, clerkUserId, score: Math.min(5, Math.max(1, Number(score))) },
+          });
+        } catch (e: any) {
+          return new Response(JSON.stringify({ error: "Error al guardar" }), {
+            status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" },
+          });
+        }
+
+        const agg = await prisma.comercioReview.aggregate({
+          where: { comercioId: comercio.id },
+          _avg: { score: true },
+          _count: { score: true },
+        });
+        await prisma.comercio.update({
+          where: { id: comercio.id },
+          data: {
+            ratingAvg: Math.round((agg._avg.score ?? 0) * 10) / 10,
+            ratingCount: agg._count.score,
+          },
+        });
+
+        return new Response(JSON.stringify({ id: review.id, score: review.score, createdAt: review.createdAt }), {
+          status: 201, headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+
       // POST /api/comercios/:slug/recommend — recomendar comercio (anónimo)
       if (
         path.match(/^\/api\/comercios\/[^/]+\/recommend$/) &&
@@ -3936,6 +4021,8 @@ Devolvé únicamente un JSON válido con esta forma:
             isPremium: true,
             isFounder: true,
             recommendations: true,
+            ratingAvg: true,
+            ratingCount: true,
             createdAt: true,
             offers: {
               where: { activa: true },
