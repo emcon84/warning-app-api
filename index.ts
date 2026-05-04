@@ -5707,7 +5707,7 @@ Devolvé únicamente un JSON válido con esta forma:
               aiGlobalHoy: globalAiUsageToday,
             },
             canUpgrade: plan === "free",
-            upgradeUrl: plan === "free" ? "/comercio/upgrade" : null,
+            upgradeUrl: plan === "free" ? "/comercio/gestionar?upgrade=1" : null,
           },
           { headers: corsHeaders },
         );
