@@ -2949,6 +2949,23 @@ https://reportesreconquista.com`;
         });
       }
 
+      // GET /api/productos/recientes — últimos productos/servicios agregados (público)
+      if (path === "/api/productos/recientes" && method === "GET") {
+        const limit = Math.min(parseInt(url.searchParams.get("limit") ?? "20"), 40);
+        const productos = await prisma.producto.findMany({
+          where: { activo: true, comercio: { activo: true } },
+          orderBy: { createdAt: "desc" },
+          take: limit,
+          select: {
+            id: true, nombre: true, tipo: true, descripcion: true, precio: true, foto: true, createdAt: true,
+            comercio: { select: { nombre: true, slug: true, logo: true, foto: true, rubro: true } },
+          },
+        });
+        return new Response(JSON.stringify(productos), {
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+
       // GET /api/comercios — listar comercios activos (público)
       if (path === "/api/comercios" && method === "GET") {
         const barrio = url.searchParams.get("barrio") ?? undefined;
