@@ -3417,21 +3417,17 @@ https://reportesreconquista.com`;
         } else if (generatedPhotoUrl) {
           foto = generatedPhotoUrl;
         }
-        if (!comercio.isPremium) {
-          const count = await prisma.producto.count({
-            where: { comercioId: comercio.id },
-          });
-          if (count >= 10)
+        {
+          const totalLimit = comercio.isFounder ? 999999 : comercio.isPremium ? 100 : 50;
+          const planName   = comercio.isFounder ? "Master" : comercio.isPremium ? "Premium" : "Gratis";
+          const count = await prisma.producto.count({ where: { comercioId: comercio.id } });
+          if (count >= totalLimit)
             return new Response(
               JSON.stringify({
                 error: "LIMIT_REACHED",
-                message:
-                  "Alcanzaste el límite de 10 items en el plan gratuito.",
+                message: `Alcanzaste el límite de ${totalLimit} items en el plan ${planName}.`,
               }),
-              {
-                status: 403,
-                headers: { ...corsHeaders, "Content-Type": "application/json" },
-              },
+              { status: 403, headers: { ...corsHeaders, "Content-Type": "application/json" } },
             );
         }
         const producto = await prisma.producto.create({
