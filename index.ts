@@ -3740,6 +3740,12 @@ Devolvé únicamente un JSON válido con esta forma:
           if (!cdRes.ok) {
             const err = await cdRes.text().catch(() => "");
             console.error("[generar-imagen] Clipdrop error", cdRes.status, err.slice(0, 200));
+            if (cdRes.status === 402) {
+              return new Response(JSON.stringify({
+                error: "CREDITS_EXHAUSTED",
+                message: "Los créditos de generación de imágenes se agotaron. Activá el plan Premium para seguir usando esta función.",
+              }), { status: 402, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+            }
             return new Response(JSON.stringify({ error: "No se pudo procesar la imagen. Intentá de nuevo." }), {
               status: 502, headers: { ...corsHeaders, "Content-Type": "application/json" },
             });
