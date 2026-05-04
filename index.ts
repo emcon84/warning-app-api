@@ -2949,6 +2949,36 @@ https://reportesreconquista.com`;
         });
       }
 
+      // GET /api/productos/buscar — buscar productos y servicios por texto (público)
+      if (path === "/api/productos/buscar" && method === "GET") {
+        const q = url.searchParams.get("q")?.trim() ?? "";
+        if (q.length < 2) return new Response(JSON.stringify([]), {
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+        const productos = await prisma.producto.findMany({
+          where: {
+            activo: true,
+            comercio: { activo: true },
+            OR: [
+              { nombre: { contains: q, mode: "insensitive" } },
+              { descripcion: { contains: q, mode: "insensitive" } },
+              { tipo: { contains: q, mode: "insensitive" } },
+              { comercio: { nombre: { contains: q, mode: "insensitive" } } },
+              { comercio: { rubro: { contains: q, mode: "insensitive" } } },
+            ],
+          },
+          take: 10,
+          orderBy: { createdAt: "desc" },
+          select: {
+            id: true, nombre: true, tipo: true, descripcion: true, precio: true, foto: true,
+            comercio: { select: { nombre: true, slug: true, logo: true, foto: true, rubro: true } },
+          },
+        });
+        return new Response(JSON.stringify(productos), {
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+
       // GET /api/productos/recientes — últimos productos/servicios agregados (público)
       if (path === "/api/productos/recientes" && method === "GET") {
         const limit = Math.min(parseInt(url.searchParams.get("limit") ?? "20"), 40);
