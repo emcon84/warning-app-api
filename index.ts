@@ -3126,6 +3126,15 @@ https://reportesreconquista.com`;
           updateData.horario = sanitizeText(horario, 200) || null;
         if (descripcion !== null)
           updateData.descripcion = sanitizeText(descripcion, 500) || null;
+        const aceptaEnviosRaw = formData.get("aceptaEnvios") as string | null;
+        if (aceptaEnviosRaw !== null)
+          updateData.aceptaEnvios = aceptaEnviosRaw === "true" || aceptaEnviosRaw === "1";
+        const zonaEnvio = formData.get("zonaEnvio") as string | null;
+        if (zonaEnvio !== null)
+          updateData.zonaEnvio = sanitizeText(zonaEnvio, 200) || null;
+        const costoEnvio = formData.get("costoEnvio") as string | null;
+        if (costoEnvio !== null)
+          updateData.costoEnvio = sanitizeText(costoEnvio, 100) || null;
         // foto principal
         const mainPhoto = formData.get("photo") as File | null;
         if (mainPhoto && mainPhoto.size > 0) {
@@ -3438,6 +3447,7 @@ https://reportesreconquista.com`;
             descripcion,
             precio,
             foto,
+            stock: formData.get("stock") ? parseInt(formData.get("stock") as string) : null,
           },
         });
         return new Response(JSON.stringify(producto), {
@@ -3904,6 +3914,7 @@ Devolvé únicamente un JSON válido con esta forma:
             descripcion,
             precio,
             ...(fotoUrl !== undefined ? { foto: fotoUrl } : {}),
+            stock: formData.get("stock") ? parseInt(formData.get("stock") as string) : null,
           },
         });
         return new Response(JSON.stringify(updated), {
@@ -4210,6 +4221,9 @@ Devolvé únicamente un JSON válido con esta forma:
             recommendations: true,
             ratingAvg: true,
             ratingCount: true,
+            aceptaEnvios: true,
+            zonaEnvio: true,
+            costoEnvio: true,
             createdAt: true,
             offers: {
               where: { activa: true },
@@ -4233,6 +4247,7 @@ Devolvé únicamente un JSON válido con esta forma:
                 descripcion: true,
                 precio: true,
                 foto: true,
+                stock: true,
                 createdAt: true,
               },
               orderBy: { createdAt: "desc" },

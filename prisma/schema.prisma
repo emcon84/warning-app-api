@@ -305,6 +305,9 @@ model Comercio {
   recommendations Int                 @default(0)
   ratingAvg       Float               @default(0)
   ratingCount     Int                 @default(0)
+  aceptaEnvios    Boolean             @default(false)
+  zonaEnvio       String?
+  costoEnvio      String?
   createdAt       DateTime            @default(now())
   updatedAt       DateTime            @updatedAt
   offers          ComercioOffer[]
@@ -374,6 +377,7 @@ model Producto {
   precio      String?
   foto        String?
   activo      Boolean  @default(true)
+  stock       Int?
   createdAt   DateTime @default(now())
   comercio    Comercio @relation(fields: [comercioId], references: [id], onDelete: Cascade)
 
