@@ -4223,6 +4223,30 @@ Devolvé únicamente un JSON válido con esta forma:
         }
       }
 
+      // GET /api/posts/recientes — últimos N posts del sistema (público)
+      if (path === "/api/posts/recientes" && method === "GET") {
+        const limit = Math.min(parseInt(url.searchParams.get("limit") || "10"), 30);
+        const posts = await prisma.comercioPost.findMany({
+          where: { activo: true },
+          orderBy: { createdAt: "desc" },
+          take: limit,
+          select: {
+            id: true,
+            tipo: true,
+            contenido: true,
+            foto: true,
+            likes: true,
+            createdAt: true,
+            comercio: {
+              select: { id: true, nombre: true, slug: true, foto: true, logo: true, rubro: true, whatsapp: true },
+            },
+          },
+        });
+        return new Response(JSON.stringify(posts), {
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+
       // GET /api/posts/:postId — detalle de un post público
       const postDetailMatch = path.match(/^\/api\/posts\/([^/]+)$/);
       if (postDetailMatch && method === "GET") {
