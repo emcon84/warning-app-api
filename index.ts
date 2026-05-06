@@ -304,6 +304,32 @@ async function uploadToR2(buffer: ArrayBuffer, filename: string, contentType: st
   return `${process.env.R2_PUBLIC_URL}/${filename}`;
 }
 
+async function sendPushToComercioSubscriptors(comercioId: string, payload: object) {
+  try {
+    const rows = await db.query<{ endpoint: string; p256dh: string; auth: string }>(
+      `SELECT DISTINCT ps.endpoint, ps.p256dh, ps.auth
+       FROM "PushSubscription" ps
+       INNER JOIN "ComercioSubscripcion" cs ON cs."clerkUserId" = ps."clerkUserId"
+       WHERE cs."comercioId" = $1 AND ps.endpoint IS NOT NULL`,
+      [comercioId],
+    );
+    const notifPayload = JSON.stringify(payload);
+    for (const row of rows.rows) {
+      try {
+        await webPush.sendNotification(
+          { endpoint: row.endpoint, keys: { p256dh: row.p256dh, auth: row.auth } },
+          notifPayload,
+          { urgency: "normal", TTL: 86400 },
+        );
+      } catch (e: any) {
+        if (e?.statusCode === 410 || e?.statusCode === 404) {
+          await db.query('DELETE FROM "PushSubscription" WHERE endpoint = $1', [row.endpoint]);
+        }
+      }
+    }
+  } catch {}
+}
+
 // Crear tablas de ofertas si no existen
 await db.query(`
   CREATE TABLE IF NOT EXISTS "Supermarket" (
@@ -378,6 +404,7 @@ const server = Bun.serve({
         path.startsWith("/api/supermarkets") ||
         path.startsWith("/api/profesionales") ||
         path.startsWith("/api/comercios") ||
+        path.startsWith("/api/posts") ||
         path.startsWith("/api/empleados") ||
         path.startsWith("/api/vacantes"));
 
@@ -4194,6 +4221,151 @@ Devolvé únicamente un JSON válido con esta forma:
             });
           throw e;
         }
+      }
+
+      // GET /api/posts/recientes — últimos N posts del sistema (público)
+      if (path === "/api/posts/recientes" && method === "GET") {
+        const limit = Math.min(parseInt(url.searchParams.get("limit") || "10"), 30);
+        const posts = await prisma.comercioPost.findMany({
+          where: { activo: true },
+          orderBy: { createdAt: "desc" },
+          take: limit,
+          include: {
+            comercio: {
+              select: { id: true, nombre: true, slug: true, foto: true, logo: true, rubro: true },
+            },
+          },
+        });
+        return new Response(JSON.stringify(posts), {
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+
+      // GET /api/comercios/:slug/posts — posts de un comercio (público)
+      const slugPostsMatchGet = path.match(/^\/api\/comercios\/([^/]+)\/posts$/);
+      if (slugPostsMatchGet && method === "GET") {
+        const slug = slugPostsMatchGet[1];
+        const page = parseInt(url.searchParams.get("page") || "1");
+        const limit = 12;
+        const comercio = await prisma.comercio.findUnique({ where: { slug }, select: { id: true } });
+        if (!comercio) return new Response(JSON.stringify({ error: "No encontrado" }), { status: 404, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+        const [posts, total] = await Promise.all([
+          prisma.comercioPost.findMany({
+            where: { comercioId: comercio.id, activo: true },
+            orderBy: { createdAt: "desc" },
+            skip: (page - 1) * limit,
+            take: limit,
+          }),
+          prisma.comercioPost.count({ where: { comercioId: comercio.id, activo: true } }),
+        ]);
+        return new Response(JSON.stringify({ posts, total, page, pages: Math.ceil(total / limit) }), {
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+
+      // POST /api/comercios/:slug/posts — crear post (solo dueño)
+      const slugPostsMatchPost = path.match(/^\/api\/comercios\/([^/]+)\/posts$/);
+      if (slugPostsMatchPost && method === "POST") {
+        const slug = slugPostsMatchPost[1];
+        const clerkUserId = await verifyClerkToken(req).catch(() => null);
+        if (!clerkUserId) return new Response(JSON.stringify({ error: "No autorizado" }), { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+        const comercio = await prisma.comercio.findUnique({ where: { slug } });
+        if (!comercio || comercio.clerkUserId !== clerkUserId)
+          return new Response(JSON.stringify({ error: "No autorizado" }), { status: 403, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+
+        const formData = await req.formData();
+        const contenido = sanitizeText(formData.get("contenido") as string, 1000);
+        if (!contenido) return new Response(JSON.stringify({ error: "El contenido es obligatorio" }), { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+
+        const tipo = ["novedad", "oferta", "sorteo"].includes(formData.get("tipo") as string)
+          ? (formData.get("tipo") as string) : "novedad";
+        const precioAntes = sanitizeText(formData.get("precioAntes") as string, 50) || null;
+        const precioDespues = sanitizeText(formData.get("precioDespues") as string, 50) || null;
+        const fechaSorteoRaw = formData.get("fechaSorteo") as string | null;
+        const fechaSorteo = fechaSorteoRaw ? new Date(fechaSorteoRaw) : null;
+
+        let foto: string | null = null;
+        const photoFile = formData.get("photo") as File | null;
+        if (photoFile && photoFile.size > 0) {
+          const ext = photoFile.name.split(".").pop()?.toLowerCase() || "jpg";
+          const filename = `post_${crypto.randomUUID()}.${ext}`;
+          foto = await uploadToR2(await photoFile.arrayBuffer(), filename, photoFile.type || "image/jpeg");
+        }
+
+        const post = await prisma.comercioPost.create({
+          data: { comercioId: comercio.id, tipo, contenido, foto, precioAntes, precioDespues, fechaSorteo },
+        });
+
+        // Enviar notificaciones push a suscriptores (no bloquear la respuesta)
+        sendPushToComercioSubscriptors(comercio.id, {
+          title: comercio.nombre,
+          body: tipo === "oferta" ? `Nueva oferta: ${contenido.slice(0, 80)}` :
+                tipo === "sorteo" ? `Nuevo sorteo: ${contenido.slice(0, 80)}` :
+                contenido.slice(0, 100),
+          url: `/comercio/${slug}`,
+          icon: comercio.logo || comercio.foto || "/icon-192x192.png",
+        });
+
+        return new Response(JSON.stringify(post), {
+          status: 201,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+
+      // DELETE /api/comercios/:slug/posts/:postId — eliminar post (solo dueño)
+      const slugPostDeleteMatch = path.match(/^\/api\/comercios\/([^/]+)\/posts\/([^/]+)$/);
+      if (slugPostDeleteMatch && method === "DELETE") {
+        const [, slug, postId] = slugPostDeleteMatch;
+        const clerkUserId = await verifyClerkToken(req).catch(() => null);
+        if (!clerkUserId) return new Response(JSON.stringify({ error: "No autorizado" }), { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+        const comercio = await prisma.comercio.findUnique({ where: { slug }, select: { id: true, clerkUserId: true } });
+        if (!comercio || comercio.clerkUserId !== clerkUserId)
+          return new Response(JSON.stringify({ error: "No autorizado" }), { status: 403, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+        await prisma.comercioPost.updateMany({ where: { id: postId, comercioId: comercio.id }, data: { activo: false } });
+        return new Response(JSON.stringify({ ok: true }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      }
+
+      // GET /api/comercios/:slug/sumate — estado de suscripción (requiere auth)
+      const slugSumateMatch = path.match(/^\/api\/comercios\/([^/]+)\/sumate$/);
+      if (slugSumateMatch && method === "GET") {
+        const slug = slugSumateMatch[1];
+        const clerkUserId = await verifyClerkToken(req).catch(() => null);
+        const comercio = await prisma.comercio.findUnique({ where: { slug }, select: { id: true } });
+        if (!comercio) return new Response(JSON.stringify({ error: "No encontrado" }), { status: 404, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+        const count = await prisma.comercioSubscripcion.count({ where: { comercioId: comercio.id } });
+        if (!clerkUserId) return new Response(JSON.stringify({ subscribed: false, count }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+        const sub = await prisma.comercioSubscripcion.findUnique({ where: { comercioId_clerkUserId: { comercioId: comercio.id, clerkUserId } } });
+        return new Response(JSON.stringify({ subscribed: !!sub, count }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      }
+
+      // POST /api/comercios/:slug/sumate — suscribirse (requiere auth)
+      const slugSumatePostMatch = path.match(/^\/api\/comercios\/([^/]+)\/sumate$/);
+      if (slugSumatePostMatch && method === "POST") {
+        const slug = slugSumatePostMatch[1];
+        const clerkUserId = await verifyClerkToken(req).catch(() => null);
+        if (!clerkUserId) return new Response(JSON.stringify({ error: "No autorizado" }), { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+        const comercio = await prisma.comercio.findUnique({ where: { slug }, select: { id: true } });
+        if (!comercio) return new Response(JSON.stringify({ error: "No encontrado" }), { status: 404, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+        await prisma.comercioSubscripcion.upsert({
+          where: { comercioId_clerkUserId: { comercioId: comercio.id, clerkUserId } },
+          create: { comercioId: comercio.id, clerkUserId },
+          update: {},
+        });
+        const count = await prisma.comercioSubscripcion.count({ where: { comercioId: comercio.id } });
+        return new Response(JSON.stringify({ subscribed: true, count }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      }
+
+      // DELETE /api/comercios/:slug/sumate — desuscribirse (requiere auth)
+      const slugSumateDeleteMatch = path.match(/^\/api\/comercios\/([^/]+)\/sumate$/);
+      if (slugSumateDeleteMatch && method === "DELETE") {
+        const slug = slugSumateDeleteMatch[1];
+        const clerkUserId = await verifyClerkToken(req).catch(() => null);
+        if (!clerkUserId) return new Response(JSON.stringify({ error: "No autorizado" }), { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+        const comercio = await prisma.comercio.findUnique({ where: { slug }, select: { id: true } });
+        if (!comercio) return new Response(JSON.stringify({ error: "No encontrado" }), { status: 404, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+        await prisma.comercioSubscripcion.deleteMany({ where: { comercioId: comercio.id, clerkUserId } });
+        const count = await prisma.comercioSubscripcion.count({ where: { comercioId: comercio.id } });
+        return new Response(JSON.stringify({ subscribed: false, count }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
       }
 
       // GET /api/comercios/:slug — perfil público de un comercio

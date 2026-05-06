@@ -316,6 +316,8 @@ model Comercio {
   eventos         ComercioEventDay[]
   aiUsage         ProductAiUsageDay[]
   reviews         ComercioReview[]
+  posts           ComercioPost[]
+  subscripciones  ComercioSubscripcion[]
 
   @@index([barrio])
   @@index([rubro])
@@ -510,4 +512,36 @@ model Recommendation {
 
   @@unique([targetType, targetId, ipHash])
   @@index([targetType, targetId])
+}
+
+model ComercioPost {
+  id            String    @id @default(cuid())
+  comercioId    String
+  tipo          String    @default("novedad")
+  contenido     String
+  foto          String?
+  precioAntes   String?
+  precioDespues String?
+  fechaSorteo   DateTime?
+  activo        Boolean   @default(true)
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+  comercio      Comercio  @relation(fields: [comercioId], references: [id], onDelete: Cascade)
+
+  @@index([comercioId])
+  @@index([createdAt])
+  @@index([activo])
+  @@index([tipo])
+}
+
+model ComercioSubscripcion {
+  id          String   @id @default(cuid())
+  comercioId  String
+  clerkUserId String
+  createdAt   DateTime @default(now())
+  comercio    Comercio @relation(fields: [comercioId], references: [id], onDelete: Cascade)
+
+  @@unique([comercioId, clerkUserId])
+  @@index([comercioId])
+  @@index([clerkUserId])
 }
