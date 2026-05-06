@@ -4223,6 +4223,24 @@ Devolvé únicamente un JSON válido con esta forma:
         }
       }
 
+      // POST /api/posts/:postId/like  — toggle-like público (sin auth, solo contador)
+      const postLikeMatch = path.match(/^\/api\/posts\/([^/]+)\/like$/);
+      if (postLikeMatch && method === "POST") {
+        const postId = postLikeMatch[1];
+        let body: { unlike?: boolean } = {};
+        try { body = await req.json(); } catch {}
+        const delta = body.unlike ? -1 : 1;
+        const updated = await prisma.comercioPost.update({
+          where: { id: postId },
+          data: { likes: { increment: delta } },
+          select: { likes: true },
+        }).catch(() => null);
+        if (!updated) return new Response(JSON.stringify({ error: "No encontrado" }), { status: 404, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+        return new Response(JSON.stringify({ likes: Math.max(0, updated.likes) }), {
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+
       // GET /api/posts/recientes — últimos N posts del sistema (público)
       if (path === "/api/posts/recientes" && method === "GET") {
         const limit = Math.min(parseInt(url.searchParams.get("limit") || "10"), 30);
@@ -4232,7 +4250,7 @@ Devolvé únicamente un JSON válido con esta forma:
           take: limit,
           include: {
             comercio: {
-              select: { id: true, nombre: true, slug: true, foto: true, logo: true, rubro: true },
+              select: { id: true, nombre: true, slug: true, foto: true, logo: true, rubro: true, whatsapp: true },
             },
           },
         });
