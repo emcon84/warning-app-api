@@ -4391,11 +4391,6 @@ Devolvé únicamente un JSON válido con esta forma:
         const slug = path.split("/api/comercios/")[1];
         const comercio = await prisma.comercio.findUnique({
           where: { slug },
-          include: {
-            _count: {
-              select: { suscriptores: true },
-            },
-          },
           select: {
             id: true,
             nombre: true,
@@ -4457,7 +4452,9 @@ Devolvé únicamente un JSON válido con esta forma:
               headers: { ...corsHeaders, "Content-Type": "application/json" },
             },
           );
-        return new Response(JSON.stringify(comercio), {
+        // Get subscriber count separately
+        const susCount = await prisma.comercioSubscripcion.count({ where: { comercioId: comercio.id } });
+        return new Response(JSON.stringify({ ...comercio, _count: { suscriptores: susCount } }), {
           headers: { ...corsHeaders, "Content-Type": "application/json" },
         });
       }
