@@ -4362,7 +4362,7 @@ Devolvé únicamente un JSON válido con esta forma:
         const slug = slugSumatePostMatch[1];
         const clerkUserId = await verifyClerkToken(req).catch(() => null);
         if (!clerkUserId) return new Response(JSON.stringify({ error: "No autorizado" }), { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } });
-        const comercio = await prisma.comercio.findUnique({ where: { slug }, select: { id: true, nombre: true, whatsapp: true } });
+        const comercio = await prisma.comercio.findUnique({ where: { slug }, select: { id: true, nombre: true, clerkUserId: true } });
         if (!comercio) return new Response(JSON.stringify({ error: "No encontrado" }), { status: 404, headers: { ...corsHeaders, "Content-Type": "application/json" } });
         
         // Check if already subscribed
@@ -4374,10 +4374,19 @@ Devolvé únicamente un JSON válido con esta forma:
             update: {},
           });
           
-          // Notify commerce via WhatsApp
-          if (comercio.whatsapp) {
-            const waMsg = `🔔 *Nuevo miembro en ${comercio.nombre}!*\n\nAlguien se acaba de sumar a tu comunidad. Ahora recibirá todas tus publicaciones, ofertas y sorteos.`;
-            fetch(`https://api.callmebot.com/whatsapp.php?phone=${comercio.whatsapp}&text=${encodeURIComponent(waMsg)}`, { method: "POST" }).catch(() => {});
+          // Notify commerce owner via push
+          const ownerSubs = await prisma.pushSubscription.findMany({ where: { clerkUserId: comercio.clerkUserId } });
+          if (ownerSubs.length > 0) {
+            const notificationPayload = JSON.stringify({
+              title: "🔔 Nuevo miembro",
+              body: `Alguien se unió a la comunidad de ${comercio.nombre}`,
+              icon: "/icon-192.png",
+              badge: "/icon-192.png",
+              data: { url: `/comercio/gestionar` },
+            });
+            for (const sub of ownerSubs) {
+              webPush.sendNotification(sub, notificationPayload).catch(() => {});
+            }
           }
         }
         
