@@ -4362,13 +4362,25 @@ Devolvé únicamente un JSON válido con esta forma:
         const slug = slugSumatePostMatch[1];
         const clerkUserId = await verifyClerkToken(req).catch(() => null);
         if (!clerkUserId) return new Response(JSON.stringify({ error: "No autorizado" }), { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } });
-        const comercio = await prisma.comercio.findUnique({ where: { slug }, select: { id: true } });
+        const comercio = await prisma.comercio.findUnique({ where: { slug }, select: { id: true, nombre: true, whatsapp: true } });
         if (!comercio) return new Response(JSON.stringify({ error: "No encontrado" }), { status: 404, headers: { ...corsHeaders, "Content-Type": "application/json" } });
-        await prisma.comercioSubscripcion.upsert({
-          where: { comercioId_clerkUserId: { comercioId: comercio.id, clerkUserId } },
-          create: { comercioId: comercio.id, clerkUserId },
-          update: {},
-        });
+        
+        // Check if already subscribed
+        const existing = await prisma.comercioSubscripcion.findUnique({ where: { comercioId_clerkUserId: { comercioId: comercio.id, clerkUserId } } });
+        if (!existing) {
+          await prisma.comercioSubscripcion.upsert({
+            where: { comercioId_clerkUserId: { comercioId: comercio.id, clerkUserId } },
+            create: { comercioId: comercio.id, clerkUserId },
+            update: {},
+          });
+          
+          // Notify commerce via WhatsApp
+          if (comercio.whatsapp) {
+            const waMsg = `🔔 *Nuevo miembro en ${comercio.nombre}!*\n\nAlguien se acaba de sumar a tu comunidad. Ahora recibirá todas tus publicaciones, ofertas y sorteos.`;
+            fetch(`https://api.callmebot.com/whatsapp.php?phone=${comercio.whatsapp}&text=${encodeURIComponent(waMsg)}`, { method: "POST" }).catch(() => {});
+          }
+        }
+        
         const count = await prisma.comercioSubscripcion.count({ where: { comercioId: comercio.id } });
         return new Response(JSON.stringify({ subscribed: true, count }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
       }
