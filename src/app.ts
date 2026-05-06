@@ -1,5 +1,6 @@
 import { Elysia } from "elysia";
 import { cors } from "@elysiajs/cors";
+import { comerciosRouter } from "./modules/comercios/comercios.router";
 
 export const app = new Elysia()
 
@@ -14,6 +15,9 @@ export const app = new Elysia()
 
   // ── Health check ──────────────────────────────────────────────────────────
   .get("/api/health", () => ({ status: "ok" }))
+
+  // ── Módulos ───────────────────────────────────────────────────────────────
+  .use(comerciosRouter)
 
   // ── Error handler global ──────────────────────────────────────────────────
   .onError(({ code, error, set }) => {
