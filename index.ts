@@ -4229,7 +4229,17 @@ Devolvé únicamente un JSON válido con esta forma:
         const postId = postDetailMatch[1];
         const post = await prisma.comercioPost.findUnique({
           where: { id: postId },
-          include: {
+          select: {
+            id: true,
+            tipo: true,
+            contenido: true,
+            foto: true,
+            precioAntes: true,
+            precioDespues: true,
+            fechaSorteo: true,
+            likes: true,
+            activo: true,
+            createdAt: true,
             comercio: {
               select: { id: true, nombre: true, slug: true, barrio: true, whatsapp: true, foto: true, logo: true },
             },
