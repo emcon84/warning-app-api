@@ -4274,7 +4274,13 @@ Devolvé únicamente un JSON válido con esta forma:
           where: { activo: true },
           orderBy: { createdAt: "desc" },
           take: limit,
-          include: {
+          select: {
+            id: true,
+            tipo: true,
+            contenido: true,
+            foto: true,
+            likes: true,
+            createdAt: true,
             comercio: {
               select: { id: true, nombre: true, slug: true, foto: true, logo: true, rubro: true, whatsapp: true },
             },
