@@ -4223,6 +4223,22 @@ Devolvé únicamente un JSON válido con esta forma:
         }
       }
 
+      // GET /api/posts/:postId — detalle de un post público
+      const postDetailMatch = path.match(/^\/api\/posts\/([^/]+)$/);
+      if (postDetailMatch && method === "GET") {
+        const postId = postDetailMatch[1];
+        const post = await prisma.comercioPost.findUnique({
+          where: { id: postId },
+          include: {
+            comercio: {
+              select: { id: true, nombre: true, slug: true, barrio: true, whatsapp: true, foto: true, logo: true },
+            },
+          },
+        });
+        if (!post) return new Response(JSON.stringify({ error: "No encontrado" }), { status: 404, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+        return new Response(JSON.stringify(post), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      }
+
       // POST /api/posts/:postId/like  — toggle-like público (sin auth, solo contador)
       const postLikeMatch = path.match(/^\/api\/posts\/([^/]+)\/like$/);
       if (postLikeMatch && method === "POST") {
