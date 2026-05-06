@@ -4391,6 +4391,11 @@ Devolvé únicamente un JSON válido con esta forma:
         const slug = path.split("/api/comercios/")[1];
         const comercio = await prisma.comercio.findUnique({
           where: { slug },
+          include: {
+            _count: {
+              select: { suscriptores: true },
+            },
+          },
           select: {
             id: true,
             nombre: true,
