@@ -3,6 +3,7 @@ import { cors } from "@elysiajs/cors";
 import { comerciosRouter } from "./modules/comercios/comercios.router";
 import { postsRouter } from "./modules/posts/posts.router";
 import { reportsRouter } from "./modules/reports/reports.router";
+import { doctorsRouter } from "./modules/doctors/doctors.router";
 
 export const app = new Elysia()
 
@@ -22,6 +23,7 @@ export const app = new Elysia()
   .use(comerciosRouter)
   .use(postsRouter)
   .use(reportsRouter)
+  .use(doctorsRouter)
 
   // ── Error handler global ──────────────────────────────────────────────────
   .onError(({ code, error, set }) => {
