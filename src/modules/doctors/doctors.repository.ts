@@ -67,7 +67,10 @@ export async function createDoctor(data: {
   lng: number;
   obrasSociales: string[];
 }) {
-  return prisma.doctor.create({ data, select: DOCTOR_SELECT });
+  return prisma.doctor.create({
+    data: { ...data, updatedAt: new Date() },
+    select: DOCTOR_SELECT,
+  });
 }
 
 export async function updateDoctor(id: string, data: Prisma.DoctorUpdateInput) {
