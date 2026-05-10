@@ -1,11 +1,14 @@
 import webPush from "web-push";
 import { db } from "../../lib/db";
+import { prisma } from "../../lib/prisma";
 
 interface PushPayload {
   title: string;
   body: string;
   url?: string;
   icon?: string;
+  badge?: string;
+  data?: Record<string, unknown>;
 }
 
 /**
@@ -50,5 +53,31 @@ export async function sendPushToComercioSubscriptors(
     }
   } catch {
     // Nunca propagar — el push no debe romper el endpoint que lo dispara
+  }
+}
+
+export async function sendPushToAllSubscribers(payload: PushPayload): Promise<void> {
+  try {
+    const subs = await prisma.pushSubscription.findMany({
+      select: { endpoint: true, p256dh: true, auth: true },
+    });
+
+    const notification = JSON.stringify(payload);
+
+    for (const sub of subs) {
+      try {
+        await webPush.sendNotification(
+          { endpoint: sub.endpoint, keys: { p256dh: sub.p256dh, auth: sub.auth } },
+          notification,
+          { urgency: "normal", TTL: 86400 }
+        );
+      } catch (e: any) {
+        if (e?.statusCode === 410 || e?.statusCode === 404) {
+          await prisma.pushSubscription.delete({ where: { endpoint: sub.endpoint } }).catch(() => {});
+        }
+      }
+    }
+  } catch {
+    // Nunca propagar
   }
 }
