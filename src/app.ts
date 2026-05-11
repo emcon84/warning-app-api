@@ -6,6 +6,8 @@ import { reportsRouter } from "./modules/reports/reports.router";
 import { doctorsRouter } from "./modules/doctors/doctors.router";
 import { farmaciasRouter } from "./modules/farmacias/farmacias.router";
 import { professionalsRouter } from "./modules/professionals/professionals.router";
+import { empleadosRouter } from "./modules/empleados/empleados.router";
+import { vacantesRouter } from "./modules/vacantes/vacantes.router";
 
 export const app = new Elysia()
 
@@ -28,6 +30,8 @@ export const app = new Elysia()
   .use(doctorsRouter)
   .use(farmaciasRouter)
   .use(professionalsRouter)
+  .use(empleadosRouter)
+  .use(vacantesRouter)
 
   // ── Error handler global ──────────────────────────────────────────────────
   .onError(({ code, error, set }) => {
