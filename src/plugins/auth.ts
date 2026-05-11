@@ -43,6 +43,10 @@ export const authPlugin = new Elysia({ name: "auth" }).derive(
  */
 export const requireAuth = new Elysia({ name: "requireAuth" })
   .use(authPlugin)
-  .onBeforeHandle({ as: "global" }, ({ clerkUserId, error }) => {
-    if (!clerkUserId) return error(401, { error: "No autorizado" });
+  .onBeforeHandle({ as: "scoped" }, ({ clerkUserId }) => {
+    if (!clerkUserId)
+      return new Response(JSON.stringify({ error: "No autorizado" }), {
+        status: 401,
+        headers: { "Content-Type": "application/json" },
+      });
   });
