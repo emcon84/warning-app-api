@@ -1,7 +1,7 @@
 import { Elysia } from "elysia";
 import { authPlugin } from "../../plugins/auth";
 import { standardRateLimit, strictRateLimit } from "../../plugins/rateLimit";
-import * as svc from "./farmacias.service";
+import * as svc from "./pharmacies.service";
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -23,7 +23,7 @@ function serviceError(e: unknown): Response {
 
 // ── Router ────────────────────────────────────────────────────────────────────
 
-export const farmaciasRouter = new Elysia({ prefix: "/api" })
+export const pharmaciesRouter = new Elysia({ prefix: "/api" })
   .use(authPlugin)
   .use(standardRateLimit)
 
