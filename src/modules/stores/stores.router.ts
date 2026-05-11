@@ -1,8 +1,8 @@
 import { Elysia, t } from "elysia";
 import { authPlugin, requireAuth } from "../../plugins/auth";
 import { standardRateLimit, strictRateLimit } from "../../plugins/rateLimit";
-import * as svc from "./comercios.service";
-import * as repo from "./comercios.repository";
+import * as svc from "./stores.service";
+import * as repo from "./stores.repository";
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -32,7 +32,7 @@ function serviceError(e: unknown): Response {
 
 // ── Router ────────────────────────────────────────────────────────────────────
 
-export const comerciosRouter = new Elysia({ prefix: "/api" })
+export const storesRouter = new Elysia({ prefix: "/api" })
   .use(authPlugin)
 
   // ── Productos públicos ──────────────────────────────────────────────────────

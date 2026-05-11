@@ -1,7 +1,7 @@
 import { sanitizeText } from "../../shared/sanitize";
 import { uploadFileToR2 } from "../../shared/storage";
 import { sendPushToUser, sendPushToClientToken } from "../../shared/push";
-import * as repo from "./empleados.repository";
+import * as repo from "./employees.repository";
 
 function buildSlug(nombre: string, apellido: string): string {
   return `${nombre}-${apellido}-${Math.random().toString(36).slice(2, 7)}`

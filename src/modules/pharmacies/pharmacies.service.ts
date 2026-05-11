@@ -1,5 +1,5 @@
-import type { FarmaciaRow } from "./farmacias.repository";
-import * as repo from "./farmacias.repository";
+import type { FarmaciaRow } from "./pharmacies.repository";
+import * as repo from "./pharmacies.repository";
 
 // ── Turno cache (in-memory, 1h TTL) ──────────────────────────────────────────
 

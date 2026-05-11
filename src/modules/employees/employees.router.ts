@@ -1,7 +1,7 @@
 import { Elysia, t } from "elysia";
 import { authPlugin } from "../../plugins/auth";
 import { standardRateLimit, strictRateLimit } from "../../plugins/rateLimit";
-import * as svc from "./vacantes.service";
+import * as svc from "./employees.service";
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -17,38 +17,38 @@ function serviceError(e: unknown): Response {
     const err = e as { status: number; message: string };
     return httpError(err.status, err.message);
   }
-  console.error("[vacantes]", e);
+  console.error("[empleados]", e);
   return httpError(500, "Error interno del servidor");
 }
 
 // ── Router ────────────────────────────────────────────────────────────────────
 
-export const vacantesRouter = new Elysia({ prefix: "/api" })
+export const employeesRouter = new Elysia({ prefix: "/api" })
   .use(authPlugin)
   .use(standardRateLimit)
 
   // ── Lectura pública ─────────────────────────────────────────────────────────
 
-  .get("/vacantes", async ({ query }) => {
-    try { return await svc.listVacantes({ barrio: query.barrio, habilidad: query.habilidad }); }
+  .get("/empleados", async ({ query }) => {
+    try { return await svc.listEmpleados({ barrio: query.barrio, habilidad: query.habilidad }); }
     catch (e) { return serviceError(e); }
   }, { query: t.Object({ barrio: t.Optional(t.String()), habilidad: t.Optional(t.String()) }) })
 
-  // Static routes BEFORE /:id
+  // Static routes before /:slug
 
-  .get("/vacantes/mis", async ({ clerkUserId }) => {
+  .get("/empleados/me", async ({ clerkUserId }) => {
     if (!clerkUserId) return httpError(401, "No autorizado");
-    try { return await svc.getMisVacantes(clerkUserId); }
+    try { return await svc.getMyProfile(clerkUserId); }
     catch (e) { return serviceError(e); }
   })
 
-  .get("/vacantes/mis/conversaciones", async ({ clerkUserId }) => {
+  .get("/empleados/me/conversaciones", async ({ clerkUserId }) => {
     if (!clerkUserId) return httpError(401, "No autorizado");
-    try { return await svc.getMisConversaciones(clerkUserId); }
+    try { return await svc.getMyConversaciones(clerkUserId); }
     catch (e) { return serviceError(e); }
   })
 
-  .get("/vacantes/conversaciones/:id", async ({ params, query, clerkUserId }) => {
+  .get("/empleados/conversaciones/:id", async ({ params, query, clerkUserId }) => {
     try {
       return await svc.getConversacion(params.id, clerkUserId, query.clientToken ?? null);
     } catch (e) { return serviceError(e); }
@@ -58,50 +58,47 @@ export const vacantesRouter = new Elysia({ prefix: "/api" })
 
   .use(strictRateLimit)
 
-  .post("/vacantes", async ({ clerkUserId, body }) => {
+  .post("/empleados", async ({ clerkUserId, request }) => {
     if (!clerkUserId) return httpError(401, "No autorizado");
     try {
-      const v = await svc.createVacante(clerkUserId, body as Record<string, unknown>);
-      return new Response(JSON.stringify(v), {
+      const fd  = await request.formData();
+      const emp = await svc.createEmpleado(clerkUserId, fd);
+      return new Response(JSON.stringify(emp), {
         status: 201,
         headers: { "Content-Type": "application/json" },
       });
     } catch (e) { return serviceError(e); }
   })
 
-  // Dynamic /:id — AFTER static routes
-
-  .get("/vacantes/:id", async ({ params }) => {
-    try { return await svc.getVacante(params.id); }
-    catch (e) { return serviceError(e); }
-  })
-
-  .put("/vacantes/:id", async ({ params, body, clerkUserId }) => {
+  .put("/empleados/me", async ({ clerkUserId, request }) => {
     if (!clerkUserId) return httpError(401, "No autorizado");
-    try { return await svc.updateVacante(clerkUserId, params.id, body as Record<string, unknown>); }
-    catch (e) { return serviceError(e); }
-  })
-
-  .delete("/vacantes/:id", async ({ params, clerkUserId }) => {
-    if (!clerkUserId) return httpError(401, "No autorizado");
-    try { return await svc.deleteVacante(clerkUserId, params.id); }
-    catch (e) { return serviceError(e); }
-  })
-
-  .post("/vacantes/:id/conversaciones", async ({ params, body }) => {
     try {
-      const convo = await svc.startConversacion(params.id, body as Record<string, unknown>);
-      return new Response(JSON.stringify(convo), {
-        status: 201,
-        headers: { "Content-Type": "application/json" },
-      });
+      const fd  = await request.formData();
+      return await svc.updateMyProfile(clerkUserId, fd);
     } catch (e) { return serviceError(e); }
   })
 
-  .post("/vacantes/conversaciones/:id/mensajes", async ({ params, body, clerkUserId }) => {
+  .post("/empleados/conversaciones/:id/mensajes", async ({ params, body, clerkUserId }) => {
     try {
       const msg = await svc.sendMensaje(params.id, clerkUserId, body as Record<string, unknown>);
       return new Response(JSON.stringify(msg), {
+        status: 201,
+        headers: { "Content-Type": "application/json" },
+      });
+    } catch (e) { return serviceError(e); }
+  })
+
+  // Generic /:slug — AFTER static routes
+
+  .get("/empleados/:slug", async ({ params }) => {
+    try { return await svc.getPublicProfile(params.slug); }
+    catch (e) { return serviceError(e); }
+  })
+
+  .post("/empleados/:slug/conversaciones", async ({ params, body }) => {
+    try {
+      const convo = await svc.startConversacion(params.slug, body as Record<string, unknown>);
+      return new Response(JSON.stringify(convo), {
         status: 201,
         headers: { "Content-Type": "application/json" },
       });

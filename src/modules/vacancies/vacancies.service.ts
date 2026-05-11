@@ -1,6 +1,6 @@
 import { sanitizeText } from "../../shared/sanitize";
 import { sendPushToUser, sendPushToClientToken } from "../../shared/push";
-import * as repo from "./vacantes.repository";
+import * as repo from "./vacancies.repository";
 
 // ── Vacantes ──────────────────────────────────────────────────────────────────
 

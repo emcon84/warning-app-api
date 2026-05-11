@@ -1,7 +1,7 @@
 import { uploadFileToR2, generateFilename } from "../../shared/storage";
 import { sanitizeText, generateSlug } from "../../shared/sanitize";
 import { sendPushToComercioSubscriptors } from "../../shared/push";
-import * as repo from "./comercios.repository";
+import * as repo from "./stores.repository";
 
 // ── Plan limits ───────────────────────────────────────────────────────────────
 
