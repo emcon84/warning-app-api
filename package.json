@@ -4,8 +4,10 @@
   "module": "index.ts",
   "type": "module",
   "scripts": {
-    "dev": "bun --watch index.ts",
-    "start": "bun index.ts",
+    "dev": "bun --watch src/index.ts",
+    "dev:legacy": "bun --watch index.ts",
+    "start": "bun src/index.ts",
+    "start:legacy": "bun index.ts",
     "db:generate": "prisma generate",
     "db:push": "prisma db push",
     "db:migrate": "prisma migrate dev",
