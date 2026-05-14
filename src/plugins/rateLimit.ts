@@ -48,10 +48,13 @@ const RATE_LIMIT_RESPONSE = {
  * Aplicar a escrituras generales.
  */
 export const standardRateLimit = new Elysia({ name: "rateLimit-standard" })
-  .onBeforeHandle({ as: "global" }, ({ headers, error }) => {
+  .onBeforeHandle({ as: "global" }, ({ headers }) => {
     const ip = getClientIP(headers as Record<string, string | undefined>);
     if (!checkLimit(ip, standardMap, STANDARD_LIMIT)) {
-      return error(429, RATE_LIMIT_RESPONSE);
+      return new Response(JSON.stringify(RATE_LIMIT_RESPONSE), {
+        status: 429,
+        headers: { "Content-Type": "application/json" },
+      });
     }
   });
 
@@ -60,9 +63,12 @@ export const standardRateLimit = new Elysia({ name: "rateLimit-standard" })
  * Aplicar a creaciones críticas (registros, reviews, etc).
  */
 export const strictRateLimit = new Elysia({ name: "rateLimit-strict" })
-  .onBeforeHandle({ as: "global" }, ({ headers, error }) => {
+  .onBeforeHandle({ as: "global" }, ({ headers }) => {
     const ip = getClientIP(headers as Record<string, string | undefined>);
     if (!checkLimit(ip, strictMap, STRICT_LIMIT)) {
-      return error(429, RATE_LIMIT_RESPONSE);
+      return new Response(JSON.stringify(RATE_LIMIT_RESPONSE), {
+        status: 429,
+        headers: { "Content-Type": "application/json" },
+      });
     }
   });
