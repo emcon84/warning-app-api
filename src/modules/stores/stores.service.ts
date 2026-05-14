@@ -338,7 +338,7 @@ export async function trackEvent(slug: string, type: string) {
   if (!repo.isAllowedEventType(type)) throw { status: 400, message: "Tipo de evento inválido" };
   const store = await repo.findStoreBySlug(slug);
   if (!store) throw { status: 404, message: "Comercio no encontrado" };
-  const date = new Date().toISOString().slice(0, 10);
+  const date = new Date(new Date().toISOString().slice(0, 10));
   await repo.upsertEventDay(store.id, type, date);
   return { ok: true };
 }
@@ -348,10 +348,10 @@ export async function getAnalytics(clerkUserId: string) {
   if (!store) throw { status: 404, message: "Comercio no encontrado" };
 
   const now            = new Date();
-  const thisMonthStart = new Date(now.getFullYear(), now.getMonth(), 1).toISOString().slice(0, 10);
-  const lastMonthStart = new Date(now.getFullYear(), now.getMonth() - 1, 1).toISOString().slice(0, 10);
-  const lastMonthEnd   = new Date(now.getFullYear(), now.getMonth(), 0).toISOString().slice(0, 10);
-  const thirtyDaysAgo  = new Date(Date.now() - 30 * 86400_000).toISOString().slice(0, 10);
+  const thisMonthStart = new Date(now.getFullYear(), now.getMonth(), 1);
+  const lastMonthStart = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+  const lastMonthEnd   = new Date(now.getFullYear(), now.getMonth(), 0);
+  const thirtyDaysAgo  = new Date(Date.now() - 30 * 86400_000);
 
   const events = await repo.findEventsSince(store.id, lastMonthStart);
   const thisMonth: Record<string, number>                   = {};
@@ -378,7 +378,7 @@ export async function getPlan(clerkUserId: string) {
 
   const plan   = resolvePlan(store.isPremium, store.isFounder);
   const limits = PLAN_LIMITS[plan];
-  const today  = new Date().toISOString().slice(0, 10);
+  const today  = new Date(new Date().toISOString().slice(0, 10));
   const key    = `ai_${store.id}`;
 
   const usageRow    = await repo.getAiUsageToday(key, today);
@@ -403,7 +403,7 @@ export async function checkAndIncrementAiUsage(
   const plan   = resolvePlan(store.isPremium, store.isFounder);
   const limits = PLAN_LIMITS[plan];
   const limit  = type === "analysis" ? limits.aiAnalysis : limits.aiImages;
-  const today  = new Date().toISOString().slice(0, 10);
+  const today  = new Date(new Date().toISOString().slice(0, 10));
   const key    = `ai_${type}_${store.id}`;
 
   if (limit !== Infinity) {

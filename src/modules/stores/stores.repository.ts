@@ -269,14 +269,14 @@ export async function findEventsSince(comercioId: string, since: string) {
 
 // ── AI Usage ──────────────────────────────────────────────────────────────────
 
-export async function getAiUsageToday(key: string, date: string) {
+export async function getAiUsageToday(key: string, date: Date) {
   return prisma.productAiUsageDay.findUnique({
     where: { key_date: { key, date } },
     select: { count: true },
   });
 }
 
-export async function incrementAiUsage(key: string, date: string) {
+export async function incrementAiUsage(key: string, date: Date) {
   return prisma.productAiUsageDay.upsert({
     where: { key_date: { key, date } },
     create: { key, date, count: 1 },
