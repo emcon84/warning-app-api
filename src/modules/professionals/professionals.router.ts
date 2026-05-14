@@ -2,6 +2,7 @@ import { Elysia, t } from "elysia";
 import { authPlugin } from "../../plugins/auth";
 import { standardRateLimit, strictRateLimit } from "../../plugins/rateLimit";
 import * as svc from "./professionals.service";
+import { prisma } from "../../lib/prisma";
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -153,4 +154,16 @@ export const professionalsRouter = new Elysia({ prefix: "/api" })
       const { fotoUrl } = body as { fotoUrl: string };
       return await svc.deleteGalleryPhoto(clerkUserId, proCode, fotoUrl);
     } catch (e) { return serviceError(e); }
+  })
+
+  .get("/conversations/unread-count", async ({ clerkUserId }) => {
+    try {
+      if (!clerkUserId) return { count: 0 };
+      const professional = await prisma.professional.findUnique({ where: { clerkUserId }, select: { id: true } });
+      if (!professional) return { count: 0 };
+      const count = await prisma.message.count({
+        where: { read: false, senderType: "client", Conversation: { professionalId: professional.id } },
+      });
+      return { count };
+    } catch { return { count: 0 }; }
   });
