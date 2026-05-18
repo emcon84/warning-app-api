@@ -369,13 +369,15 @@ export async function getAnalytics(clerkUserId: string) {
   ]);
   if (!store) throw { status: 404, message: "Comercio no encontrado" };
 
-  const now            = new Date();
-  const thisMonthStart = new Date(now.getFullYear(), now.getMonth(), 1);
-  const lastMonthStart = new Date(now.getFullYear(), now.getMonth() - 1, 1);
-  const lastMonthEnd   = new Date(now.getFullYear(), now.getMonth(), 0);
-  const thirtyDaysAgo  = new Date(Date.now() - 30 * 86400_000);
+  const now   = new Date();
+  const toStr = (d: Date) => d.toISOString().slice(0, 10);
 
-  const events = await repo.findEventsSince(store.id, lastMonthStart);
+  const thisMonthStartStr = toStr(new Date(now.getFullYear(), now.getMonth(), 1));
+  const lastMonthStartStr = toStr(new Date(now.getFullYear(), now.getMonth() - 1, 1));
+  const lastMonthEndStr   = toStr(new Date(now.getFullYear(), now.getMonth(), 0));
+  const thirtyDaysAgoStr  = toStr(new Date(Date.now() - 30 * 86400_000));
+
+  const events = await repo.findEventsSince(store.id, lastMonthStartStr);
   const thisMonth:   Record<string, number>                   = {};
   const lastMonth:   Record<string, number>                   = {};
   const last30:      Record<string, number>                   = {};
@@ -384,12 +386,12 @@ export async function getAnalytics(clerkUserId: string) {
   const weeklyAccum: Record<string, number>                   = {};
 
   for (const e of events) {
-    if (e.date >= thisMonthStart) thisMonth[e.type] = (thisMonth[e.type] ?? 0) + e.count;
-    if (e.date >= lastMonthStart && e.date <= lastMonthEnd)
+    const dateStr = String(e.date);
+    if (dateStr >= thisMonthStartStr) thisMonth[e.type] = (thisMonth[e.type] ?? 0) + e.count;
+    if (dateStr >= lastMonthStartStr && dateStr <= lastMonthEndStr)
       lastMonth[e.type] = (lastMonth[e.type] ?? 0) + e.count;
-    if (e.date >= thirtyDaysAgo) {
+    if (dateStr >= thirtyDaysAgoStr) {
       last30[e.type] = (last30[e.type] ?? 0) + e.count;
-      const dateStr = e.date instanceof Date ? e.date.toISOString().slice(0, 10) : String(e.date);
       if (!dailyLast30[dateStr]) dailyLast30[dateStr] = {};
       dailyLast30[dateStr][e.type] = (dailyLast30[dateStr][e.type] ?? 0) + e.count;
 

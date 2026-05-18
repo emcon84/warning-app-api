@@ -150,7 +150,7 @@ export const storesRouter = new Elysia({ prefix: "/api" })
 
   .get("/comercios/me/analytics", async ({ clerkUserId }) => {
     try { return await svc.getAnalytics(clerkUserId!); }
-    catch (e) { return serviceError(e); }
+    catch (e) { console.error("[analytics]", e); return serviceError(e); }
   })
 
   .get("/comercios/me/plan", async ({ clerkUserId }) => {
