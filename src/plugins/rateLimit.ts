@@ -60,10 +60,11 @@ export const standardRateLimit = new Elysia({ name: "rateLimit-standard" })
 
 /**
  * Rate limit estricto: 10 req/min por IP.
- * Aplicar a creaciones críticas (registros, reviews, etc).
+ * Solo aplica a escrituras (POST, PUT, PATCH, DELETE) — nunca a GETs.
  */
 export const strictRateLimit = new Elysia({ name: "rateLimit-strict" })
-  .onBeforeHandle({ as: "global" }, ({ headers }) => {
+  .onBeforeHandle({ as: "global" }, ({ headers, request }) => {
+    if (request.method === "GET") return;
     const ip = getClientIP(headers as Record<string, string | undefined>);
     if (!checkLimit(ip, strictMap, STRICT_LIMIT)) {
       return new Response(JSON.stringify(RATE_LIMIT_RESPONSE), {
