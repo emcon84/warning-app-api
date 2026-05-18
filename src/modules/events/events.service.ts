@@ -87,10 +87,12 @@ export async function updateEvent(clerkUserId: string, slug: string, formData: F
   const categoria = formData.get("categoria");
   if (categoria && CATEGORIAS_EVENTO.includes(categoria as any)) patch.categoria = categoria;
 
-  const fechaRaw    = formData.get("fecha")    as string | null;
-  const fechaFinRaw = formData.get("fechaFin") as string | null;
-  if (fechaRaw)    patch.fecha    = new Date(fechaRaw);
-  if (fechaFinRaw) patch.fechaFin = new Date(fechaFinRaw);
+  const fechaRaw    = formData.get("fecha")       as string | null;
+  const fechaFinRaw = formData.get("fechaFin")    as string | null;
+  const sorteoRaw   = formData.get("tieneSorteo") as string | null;
+  if (fechaRaw)    patch.fecha       = new Date(fechaRaw);
+  if (fechaFinRaw) patch.fechaFin    = new Date(fechaFinRaw);
+  if (sorteoRaw !== null) patch.tieneSorteo = sorteoRaw === "true";
 
   const banner = await uploadFileToR2(formData.get("banner") as File | null, "evento");
   const logo   = await uploadFileToR2(formData.get("logo")   as File | null, "evento");
