@@ -57,9 +57,52 @@ export const eventsRouter = new Elysia({ prefix: "/api" })
 
   .get("/categorias-eventos", () => svc.CATEGORIAS_EVENTO)
 
+  // ── Follow status ────────────────────────────────────────────────────────────
+
+  .get("/eventos/:slug/follow", async ({ params, clerkUserId }) => {
+    try { return await svc.getFollowStatus(params.slug, clerkUserId ?? null); }
+    catch (e) { return serviceError(e); }
+  })
+
+  .post("/eventos/:slug/follow", async ({ params, clerkUserId }) => {
+    if (!clerkUserId) return httpError(401, "Tenés que iniciar sesión");
+    try { return await svc.followEvent(params.slug, clerkUserId); }
+    catch (e) { return serviceError(e); }
+  })
+
+  .delete("/eventos/:slug/follow", async ({ params, clerkUserId }) => {
+    if (!clerkUserId) return httpError(401, "Tenés que iniciar sesión");
+    try { return await svc.unfollowEvent(params.slug, clerkUserId); }
+    catch (e) { return serviceError(e); }
+  })
+
   .get("/eventos/:slug/likes", async ({ params }) => {
     try { return await svc.getEventLikes(params.slug); }
     catch (e) { return serviceError(e); }
+  })
+
+  .get("/eventos/:slug/fotos", async ({ params }) => {
+    try { return await svc.getEventPhotos(params.slug); }
+    catch (e) { return serviceError(e); }
+  })
+
+  .post("/eventos/:slug/fotos/:fotoId/like", async ({ params, headers }) => {
+    const ip = (headers as any)["x-forwarded-for"]?.split(",")[0].trim()
+            || (headers as any)["x-real-ip"] || "unknown";
+    try { return await svc.likeEventPhoto(params.fotoId, ip); }
+    catch (e) { return serviceError(e); }
+  })
+
+  .post("/eventos/:slug/fotos", async ({ params, clerkUserId, request }) => {
+    if (!clerkUserId) return httpError(401, "Tenés que iniciar sesión para subir fotos");
+    try {
+      const fd  = await request.formData();
+      const file = fd.get("photo") as File | null;
+      const nombre = (fd.get("autorNombre") as string | null) ?? "";
+      if (!file) return httpError(400, "Foto requerida");
+      const foto = await svc.uploadEventPhoto(params.slug, clerkUserId, nombre, file);
+      return new Response(JSON.stringify(foto), { status: 201 });
+    } catch (e) { return serviceError(e); }
   })
 
   .post("/eventos/:slug/like", async ({ params, headers }) => {

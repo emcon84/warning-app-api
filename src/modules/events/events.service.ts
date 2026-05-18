@@ -1,5 +1,6 @@
 import { uploadFileToR2 } from "../../shared/storage";
 import { sanitizeText, generateSlug } from "../../shared/sanitize";
+import { sendPushToUser } from "../../shared/push";
 import * as repo from "./events.repository";
 
 export const CATEGORIAS_EVENTO = [
@@ -101,7 +102,14 @@ export async function updateEvent(clerkUserId: string, slug: string, formData: F
   }
   if (newPhotos.length) patch.fotos = [...(event.fotos ?? []), ...newPhotos];
 
-  return repo.updateEvent(event.id, patch);
+  const updated = await repo.updateEvent(event.id, patch);
+
+  notifySubscribers(event.id, event.slug, event.nombre, {
+    title: `Actualización: ${event.nombre}`,
+    body:  "El evento fue actualizado. Mirá los últimos cambios.",
+  });
+
+  return updated;
 }
 
 export async function deleteEvent(clerkUserId: string, slug: string) {
@@ -116,6 +124,85 @@ export async function getComments(slug: string) {
   if (!event) throw { status: 404, message: "Evento no encontrado" };
   return repo.findCommentsByEvent(event.id);
 }
+
+// ── Subscriptions ─────────────────────────────────────────────────────────────
+
+export async function getFollowStatus(slug: string, clerkUserId: string | null) {
+  const event = await repo.findEventBySlug(slug);
+  if (!event) throw { status: 404, message: "Evento no encontrado" };
+  const count      = await repo.countSubscribers(event.id);
+  const subscribed = clerkUserId ? !!(await repo.findSubscription(event.id, clerkUserId)) : false;
+  return { subscribed, count };
+}
+
+export async function followEvent(slug: string, clerkUserId: string) {
+  const event = await repo.findEventBySlug(slug);
+  if (!event) throw { status: 404, message: "Evento no encontrado" };
+  try { await repo.createSubscription(event.id, clerkUserId); } catch (e: any) { if (e?.code !== "P2002") throw e; }
+  return { ok: true };
+}
+
+export async function unfollowEvent(slug: string, clerkUserId: string) {
+  const event = await repo.findEventBySlug(slug);
+  if (!event) throw { status: 404, message: "Evento no encontrado" };
+  try { await repo.deleteSubscription(event.id, clerkUserId); } catch { /* ya no sigue */ }
+  return { ok: true };
+}
+
+async function notifySubscribers(eventoId: string, eventoSlug: string, eventoNombre: string, payload: { title: string; body: string }) {
+  const subs = await repo.findSubscriberIds(eventoId);
+  for (const { clerkUserId } of subs) {
+    sendPushToUser(clerkUserId, { ...payload, url: `/evento/${eventoSlug}` });
+  }
+}
+
+// ── Event Photos ──────────────────────────────────────────────────────────────
+
+export async function getEventPhotos(slug: string) {
+  const event = await repo.findEventBySlug(slug);
+  if (!event) throw { status: 404, message: "Evento no encontrado" };
+  return repo.findPhotosByEvent(event.id);
+}
+
+export async function uploadEventPhoto(slug: string, clerkUserId: string, autorNombre: string, file: File) {
+  const event = await repo.findEventBySlug(slug);
+  if (!event) throw { status: 404, message: "Evento no encontrado" };
+
+  const url = await uploadFileToR2(file, "evento");
+  if (!url) throw { status: 400, message: "Error al subir la foto" };
+
+  const foto = await repo.createPhoto({
+    eventoId:    event.id,
+    clerkUserId,
+    autorNombre: sanitizeText(autorNombre, 80) || "Asistente",
+    url,
+  });
+
+  notifySubscribers(event.id, slug, (event as any).nombre ?? slug, {
+    title: `Nueva foto en ${(event as any).nombre ?? slug}`,
+    body:  "Alguien subió una foto desde el evento",
+  });
+
+  return foto;
+}
+
+export async function likeEventPhoto(fotoId: string, ip: string) {
+  const ipHash = await hashIp(ip + fotoId);
+  try {
+    const updated = await repo.likePhoto(fotoId, ipHash);
+    return { ok: true, likes: updated.likes };
+  } catch (e: any) {
+    if (e?.code === "P2002") return { ok: false, already: true };
+    throw e;
+  }
+}
+
+async function hashIp(value: string): Promise<string> {
+  const buf = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(value));
+  return Array.from(new Uint8Array(buf)).map(b => b.toString(16).padStart(2,"0")).join("");
+}
+
+// ── Event Likes ───────────────────────────────────────────────────────────────
 
 export async function likeEvent(slug: string, ip: string) {
   const event = await repo.findEventBySlug(slug);

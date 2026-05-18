@@ -569,6 +569,8 @@ model Evento {
   updatedAt   DateTime  @updatedAt
 
   comentarios EventoComentario[]
+  eventoFotos    EventoFoto[]
+  subscripciones EventoSubscripcion[]
 
   @@index([fecha])
   @@index([activo])
@@ -588,4 +590,44 @@ model EventoComentario {
 
   @@index([eventoId])
   @@index([createdAt])
+}
+
+model EventoFoto {
+  id          String           @id @default(cuid())
+  eventoId    String
+  clerkUserId String
+  autorNombre String
+  url         String
+  likes       Int              @default(0)
+  createdAt   DateTime         @default(now())
+
+  evento      Evento           @relation(fields: [eventoId], references: [id], onDelete: Cascade)
+  fotoLikes   EventoFotoLike[]
+
+  @@index([eventoId])
+  @@index([createdAt])
+}
+
+model EventoFotoLike {
+  id      String     @id @default(cuid())
+  fotoId  String
+  ipHash  String
+
+  foto    EventoFoto @relation(fields: [fotoId], references: [id], onDelete: Cascade)
+
+  @@unique([fotoId, ipHash])
+  @@index([fotoId])
+}
+
+model EventoSubscripcion {
+  id          String   @id @default(cuid())
+  eventoId    String
+  clerkUserId String
+  createdAt   DateTime @default(now())
+
+  evento      Evento   @relation(fields: [eventoId], references: [id], onDelete: Cascade)
+
+  @@unique([eventoId, clerkUserId])
+  @@index([eventoId])
+  @@index([clerkUserId])
 }

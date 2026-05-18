@@ -80,6 +80,60 @@ export async function createComment(data: Prisma.EventoComentarioCreateInput) {
   return prisma.eventoComentario.create({ data });
 }
 
+// ── Event Photos ──────────────────────────────────────────────────────────────
+
+export async function findPhotosByEvent(eventoId: string) {
+  return prisma.eventoFoto.findMany({
+    where: { eventoId },
+    orderBy: { createdAt: "desc" },
+    select: { id: true, url: true, autorNombre: true, likes: true, createdAt: true },
+  });
+}
+
+export async function createPhoto(data: { eventoId: string; clerkUserId: string; autorNombre: string; url: string }) {
+  return prisma.eventoFoto.create({ data });
+}
+
+export async function likePhoto(fotoId: string, ipHash: string) {
+  return prisma.$transaction(async tx => {
+    await tx.eventoFotoLike.create({ data: { fotoId, ipHash } });
+    return tx.eventoFoto.update({ where: { id: fotoId }, data: { likes: { increment: 1 } }, select: { likes: true } });
+  });
+}
+
+// ── Event Likes ───────────────────────────────────────────────────────────────
+
+// ── Subscriptions ──────────────────────────────────────────────────────────────
+
+export async function findSubscription(eventoId: string, clerkUserId: string) {
+  return prisma.eventoSubscripcion.findUnique({
+    where: { eventoId_clerkUserId: { eventoId, clerkUserId } },
+  });
+}
+
+export async function createSubscription(eventoId: string, clerkUserId: string) {
+  return prisma.eventoSubscripcion.create({ data: { eventoId, clerkUserId } });
+}
+
+export async function deleteSubscription(eventoId: string, clerkUserId: string) {
+  return prisma.eventoSubscripcion.delete({
+    where: { eventoId_clerkUserId: { eventoId, clerkUserId } },
+  });
+}
+
+export async function countSubscribers(eventoId: string) {
+  return prisma.eventoSubscripcion.count({ where: { eventoId } });
+}
+
+export async function findSubscriberIds(eventoId: string) {
+  return prisma.eventoSubscripcion.findMany({
+    where: { eventoId },
+    select: { clerkUserId: true },
+  });
+}
+
+// ── Event Likes ───────────────────────────────────────────────────────────────
+
 export async function countEventLikes(eventoId: string) {
   return prisma.recommendation.count({ where: { targetType: "evento", targetId: eventoId } });
 }
