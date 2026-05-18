@@ -493,7 +493,7 @@ export async function generateRecommendations(clerkUserId: string) {
   const clicks      = analytics.thisMonth["whatsapp_click"] ?? 0;
   const productViews= analytics.thisMonth["product_view"]   ?? 0;
   const offerViews  = analytics.thisMonth["offer_view"]     ?? 0;
-  const bestDay     = [...analytics.dayOfWeek].sort((a, b) => b.total - a.total)[0];
+  const bestDay     = [...(analytics.dayOfWeek ?? [])].sort((a, b) => b.total - a.total)[0];
   const dayLabel    = bestDay?.total > 0 ? bestDay.day : "sin datos";
 
   const prompt = `Sos un consultor de marketing digital para pequeñas y medianas empresas de Argentina.
