@@ -343,8 +343,30 @@ export async function trackEvent(slug: string, type: string) {
   return { ok: true };
 }
 
+const DOW_LABELS = ["Dom", "Lun", "Mar", "Mié", "Jue", "Vie", "Sáb"];
+
+function calcProfileScore(store: Awaited<ReturnType<typeof repo.findMyStoreByClerkId>>) {
+  if (!store) return { score: 0, items: [] };
+  const items = [
+    { label: "Foto de portada",    done: !!store.foto,                                         points: 15 },
+    { label: "Logo",               done: !!store.logo,                                         points: 10 },
+    { label: "Descripción",        done: !!store.descripcion && store.descripcion.length > 20,  points: 15 },
+    { label: "WhatsApp",           done: !!store.whatsapp,                                     points: 10 },
+    { label: "1 producto/servicio",done: (store.productos?.length ?? 0) > 0,                   points: 15 },
+    { label: "3+ productos",       done: (store.productos?.length ?? 0) >= 3,                  points: 10 },
+    { label: "Oferta activa",      done: (store.offers?.filter((o: any) => o.activa).length ?? 0) > 0, points: 10 },
+    { label: "Reseñas de clientes",done: (store.ratingCount ?? 0) > 0,                        points: 10 },
+    { label: "Galería de fotos",   done: (store.fotos?.length ?? 0) > 0,                       points: 5  },
+  ];
+  const score = items.filter(i => i.done).reduce((a, i) => a + i.points, 0);
+  return { score, items };
+}
+
 export async function getAnalytics(clerkUserId: string) {
-  const store = await repo.findStoreSlugByClerkId(clerkUserId);
+  const [store, fullStore] = await Promise.all([
+    repo.findStoreSlugByClerkId(clerkUserId),
+    repo.findMyStoreByClerkId(clerkUserId),
+  ]);
   if (!store) throw { status: 404, message: "Comercio no encontrado" };
 
   const now            = new Date();
@@ -354,10 +376,12 @@ export async function getAnalytics(clerkUserId: string) {
   const thirtyDaysAgo  = new Date(Date.now() - 30 * 86400_000);
 
   const events = await repo.findEventsSince(store.id, lastMonthStart);
-  const thisMonth: Record<string, number>                   = {};
-  const lastMonth: Record<string, number>                   = {};
-  const last30:    Record<string, number>                   = {};
-  const dailyLast30: Record<string, Record<string, number>> = {};
+  const thisMonth:   Record<string, number>                   = {};
+  const lastMonth:   Record<string, number>                   = {};
+  const last30:      Record<string, number>                   = {};
+  const dailyLast30: Record<string, Record<string, number>>   = {};
+  const dowAccum:    Record<string, number>                   = {};
+  const weeklyAccum: Record<string, number>                   = {};
 
   for (const e of events) {
     if (e.date >= thisMonthStart) thisMonth[e.type] = (thisMonth[e.type] ?? 0) + e.count;
@@ -365,11 +389,40 @@ export async function getAnalytics(clerkUserId: string) {
       lastMonth[e.type] = (lastMonth[e.type] ?? 0) + e.count;
     if (e.date >= thirtyDaysAgo) {
       last30[e.type] = (last30[e.type] ?? 0) + e.count;
-      if (!dailyLast30[e.date]) dailyLast30[e.date] = {};
-      dailyLast30[e.date][e.type] = (dailyLast30[e.date][e.type] ?? 0) + e.count;
+      const dateStr = e.date instanceof Date ? e.date.toISOString().slice(0, 10) : String(e.date);
+      if (!dailyLast30[dateStr]) dailyLast30[dateStr] = {};
+      dailyLast30[dateStr][e.type] = (dailyLast30[dateStr][e.type] ?? 0) + e.count;
+
+      // Day of week
+      const dow = DOW_LABELS[new Date(dateStr).getDay()];
+      dowAccum[dow] = (dowAccum[dow] ?? 0) + e.count;
+
+      // Weekly (ISO week key = Monday of that week)
+      const d = new Date(dateStr);
+      const monday = new Date(d);
+      monday.setDate(d.getDate() - ((d.getDay() + 6) % 7));
+      const weekKey = monday.toISOString().slice(0, 10);
+      weeklyAccum[weekKey] = (weeklyAccum[weekKey] ?? 0) + e.count;
     }
   }
-  return { thisMonth, lastMonth, last30, dailyLast30 };
+
+  // Build ordered day-of-week array (Mon → Sun)
+  const dayOfWeek = ["Lun", "Mar", "Mié", "Jue", "Vie", "Sáb", "Dom"]
+    .map(d => ({ day: d, total: dowAccum[d] ?? 0 }));
+
+  // Build sorted weekly array
+  const weeklyData = Object.entries(weeklyAccum)
+    .sort(([a], [b]) => a.localeCompare(b))
+    .map(([week, total]) => ({ week, total }));
+
+  // Conversion rate: whatsapp_clicks / profile_views
+  const views   = thisMonth["profile_view"]   ?? 0;
+  const clicks  = thisMonth["whatsapp_click"] ?? 0;
+  const conversionRate = views > 0 ? Math.round((clicks / views) * 100 * 10) / 10 : 0;
+
+  const profileScore = calcProfileScore(fullStore);
+
+  return { thisMonth, lastMonth, last30, dailyLast30, dayOfWeek, weeklyData, conversionRate, profileScore };
 }
 
 export async function getPlan(clerkUserId: string) {
