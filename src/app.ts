@@ -10,6 +10,7 @@ import { professionalsRouter } from "./modules/professionals/professionals.route
 import { employeesRouter } from "./modules/employees/employees.router";
 import { vacanciesRouter } from "./modules/vacancies/vacancies.router";
 import { adminRouter } from "./modules/admin/admin.router";
+import { eventsRouter } from "./modules/events/events.router";
 
 export const app = new Elysia()
 
@@ -93,6 +94,7 @@ export const app = new Elysia()
   .use(employeesRouter)
   .use(vacanciesRouter)
   .use(adminRouter)
+  .use(eventsRouter)
 
   // ── Global error handler ──────────────────────────────────────────────────
   .onError(({ code, error, set }) => {

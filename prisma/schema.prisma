@@ -546,3 +546,46 @@ model ComercioSubscripcion {
   @@index([comercioId])
   @@index([clerkUserId])
 }
+
+model Evento {
+  id          String    @id @default(cuid())
+  slug        String    @unique
+  nombre      String
+  descripcion String?
+  lugar       String
+  direccion   String?
+  barrio      String?
+  fecha       DateTime
+  fechaFin    DateTime?
+  precio      String?
+  categoria   String
+  banner      String?
+  logo        String?
+  fotos       String[]
+  activo      Boolean   @default(true)
+  clerkUserId String
+  organizador String
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  comentarios EventoComentario[]
+
+  @@index([fecha])
+  @@index([activo])
+  @@index([categoria])
+  @@index([clerkUserId])
+}
+
+model EventoComentario {
+  id          String   @id @default(cuid())
+  eventoId    String
+  clerkUserId String
+  autorNombre String
+  texto       String
+  createdAt   DateTime @default(now())
+
+  evento      Evento   @relation(fields: [eventoId], references: [id], onDelete: Cascade)
+
+  @@index([eventoId])
+  @@index([createdAt])
+}
