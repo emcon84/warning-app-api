@@ -41,6 +41,12 @@ export async function createEvent(clerkUserId: string, formData: FormData) {
   const banner = await uploadFileToR2(formData.get("banner") as File | null, "evento");
   const logo   = await uploadFileToR2(formData.get("logo")   as File | null, "evento");
 
+  const fotos: string[] = [];
+  for (let i = 0; i < 10; i++) {
+    const url = await uploadFileToR2(formData.get(`foto${i}`) as File | null, "evento");
+    if (url) fotos.push(url);
+  }
+
   const slug = generateSlug(nombre, categoria);
 
   return repo.createEvent({
@@ -58,6 +64,7 @@ export async function createEvent(clerkUserId: string, formData: FormData) {
     precio:      sanitizeText(formData.get("precio"), 80)        || undefined,
     banner:      banner ?? undefined,
     logo:        logo   ?? undefined,
+    ...(fotos.length ? { fotos } : {}),
   });
 }
 
