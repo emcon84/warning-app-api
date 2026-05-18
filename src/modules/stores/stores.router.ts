@@ -150,7 +150,7 @@ export const storesRouter = new Elysia({ prefix: "/api" })
 
   .get("/comercios/me/analytics", async ({ clerkUserId }) => {
     try { return await svc.getAnalytics(clerkUserId!); }
-    catch (e) { return serviceError(e); }
+    catch (e) { console.error("[analytics]", e); return serviceError(e); }
   })
 
   .get("/comercios/me/plan", async ({ clerkUserId }) => {
@@ -205,6 +205,11 @@ export const storesRouter = new Elysia({ prefix: "/api" })
   })
 
   // ── AI (productos) ──────────────────────────────────────────────────────────
+
+  .post("/comercios/me/recommendations", async ({ clerkUserId }) => {
+    try { return await svc.generateRecommendations(clerkUserId!); }
+    catch (e) { return serviceError(e); }
+  })
 
   .post("/comercios/me/productos/autocompletar", async ({ clerkUserId }) => {
     try {

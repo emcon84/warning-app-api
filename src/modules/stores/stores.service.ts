@@ -343,33 +343,88 @@ export async function trackEvent(slug: string, type: string) {
   return { ok: true };
 }
 
+const DOW_LABELS = ["Dom", "Lun", "Mar", "Mié", "Jue", "Vie", "Sáb"];
+
+function calcProfileScore(store: Awaited<ReturnType<typeof repo.findMyStoreByClerkId>>) {
+  if (!store) return { score: 0, items: [] };
+  const items = [
+    { label: "Foto de portada",    done: !!store.foto,                                         points: 15 },
+    { label: "Logo",               done: !!store.logo,                                         points: 10 },
+    { label: "Descripción",        done: !!store.descripcion && store.descripcion.length > 20,  points: 15 },
+    { label: "WhatsApp",           done: !!store.whatsapp,                                     points: 10 },
+    { label: "1 producto/servicio",done: (store.productos?.length ?? 0) > 0,                   points: 15 },
+    { label: "3+ productos",       done: (store.productos?.length ?? 0) >= 3,                  points: 10 },
+    { label: "Oferta activa",      done: (store.offers?.filter((o: any) => o.activa).length ?? 0) > 0, points: 10 },
+    { label: "Reseñas de clientes",done: (store.ratingCount ?? 0) > 0,                        points: 10 },
+    { label: "Galería de fotos",   done: (store.fotos?.length ?? 0) > 0,                       points: 5  },
+  ];
+  const score = items.filter(i => i.done).reduce((a, i) => a + i.points, 0);
+  return { score, items };
+}
+
 export async function getAnalytics(clerkUserId: string) {
-  const store = await repo.findStoreSlugByClerkId(clerkUserId);
+  const [store, fullStore] = await Promise.all([
+    repo.findStoreSlugByClerkId(clerkUserId),
+    repo.findMyStoreByClerkId(clerkUserId),
+  ]);
   if (!store) throw { status: 404, message: "Comercio no encontrado" };
 
-  const now            = new Date();
-  const thisMonthStart = new Date(now.getFullYear(), now.getMonth(), 1);
-  const lastMonthStart = new Date(now.getFullYear(), now.getMonth() - 1, 1);
-  const lastMonthEnd   = new Date(now.getFullYear(), now.getMonth(), 0);
-  const thirtyDaysAgo  = new Date(Date.now() - 30 * 86400_000);
+  const now   = new Date();
+  const toStr = (d: Date) => d.toISOString().slice(0, 10);
 
-  const events = await repo.findEventsSince(store.id, lastMonthStart);
-  const thisMonth: Record<string, number>                   = {};
-  const lastMonth: Record<string, number>                   = {};
-  const last30:    Record<string, number>                   = {};
-  const dailyLast30: Record<string, Record<string, number>> = {};
+  const thisMonthStartStr = toStr(new Date(now.getFullYear(), now.getMonth(), 1));
+  const lastMonthStartStr = toStr(new Date(now.getFullYear(), now.getMonth() - 1, 1));
+  const lastMonthEndStr   = toStr(new Date(now.getFullYear(), now.getMonth(), 0));
+  const thirtyDaysAgoStr  = toStr(new Date(Date.now() - 30 * 86400_000));
+
+  const events = await repo.findEventsSince(store.id, lastMonthStartStr);
+  const thisMonth:   Record<string, number>                   = {};
+  const lastMonth:   Record<string, number>                   = {};
+  const last30:      Record<string, number>                   = {};
+  const dailyLast30: Record<string, Record<string, number>>   = {};
+  const dowAccum:    Record<string, number>                   = {};
+  const weeklyAccum: Record<string, number>                   = {};
 
   for (const e of events) {
-    if (e.date >= thisMonthStart) thisMonth[e.type] = (thisMonth[e.type] ?? 0) + e.count;
-    if (e.date >= lastMonthStart && e.date <= lastMonthEnd)
+    const dateStr = String(e.date);
+    if (dateStr >= thisMonthStartStr) thisMonth[e.type] = (thisMonth[e.type] ?? 0) + e.count;
+    if (dateStr >= lastMonthStartStr && dateStr <= lastMonthEndStr)
       lastMonth[e.type] = (lastMonth[e.type] ?? 0) + e.count;
-    if (e.date >= thirtyDaysAgo) {
+    if (dateStr >= thirtyDaysAgoStr) {
       last30[e.type] = (last30[e.type] ?? 0) + e.count;
-      if (!dailyLast30[e.date]) dailyLast30[e.date] = {};
-      dailyLast30[e.date][e.type] = (dailyLast30[e.date][e.type] ?? 0) + e.count;
+      if (!dailyLast30[dateStr]) dailyLast30[dateStr] = {};
+      dailyLast30[dateStr][e.type] = (dailyLast30[dateStr][e.type] ?? 0) + e.count;
+
+      // Day of week
+      const dow = DOW_LABELS[new Date(dateStr).getDay()];
+      dowAccum[dow] = (dowAccum[dow] ?? 0) + e.count;
+
+      // Weekly (ISO week key = Monday of that week)
+      const d = new Date(dateStr);
+      const monday = new Date(d);
+      monday.setDate(d.getDate() - ((d.getDay() + 6) % 7));
+      const weekKey = monday.toISOString().slice(0, 10);
+      weeklyAccum[weekKey] = (weeklyAccum[weekKey] ?? 0) + e.count;
     }
   }
-  return { thisMonth, lastMonth, last30, dailyLast30 };
+
+  // Build ordered day-of-week array (Mon → Sun)
+  const dayOfWeek = ["Lun", "Mar", "Mié", "Jue", "Vie", "Sáb", "Dom"]
+    .map(d => ({ day: d, total: dowAccum[d] ?? 0 }));
+
+  // Build sorted weekly array
+  const weeklyData = Object.entries(weeklyAccum)
+    .sort(([a], [b]) => a.localeCompare(b))
+    .map(([week, total]) => ({ week, total }));
+
+  // Conversion rate: whatsapp_clicks / profile_views
+  const views   = thisMonth["profile_view"]   ?? 0;
+  const clicks  = thisMonth["whatsapp_click"] ?? 0;
+  const conversionRate = views > 0 ? Math.round((clicks / views) * 100 * 10) / 10 : 0;
+
+  const profileScore = calcProfileScore(fullStore);
+
+  return { thisMonth, lastMonth, last30, dailyLast30, dayOfWeek, weeklyData, conversionRate, profileScore };
 }
 
 export async function getPlan(clerkUserId: string) {
@@ -415,4 +470,101 @@ export async function checkAndIncrementAiUsage(
 
   await repo.incrementAiUsage(key, today);
   return store;
+}
+
+// ── AI Recommendations ────────────────────────────────────────────────────────
+
+export async function generateRecommendations(clerkUserId: string) {
+  await checkAndIncrementAiUsage(clerkUserId, "analysis");
+
+  const [analytics, fullStore] = await Promise.all([
+    getAnalytics(clerkUserId),
+    repo.findMyStoreByClerkId(clerkUserId),
+  ]);
+
+  if (!fullStore) throw { status: 404, message: "Comercio no encontrado" };
+
+  const incompleteItems = analytics.profileScore.items
+    .filter((i: { done: boolean; label: string; points: number }) => !i.done)
+    .map((i: { label: string; points: number }) => `- ${i.label} (+${i.points}pts)`)
+    .join("\n") || "- (perfil completo)";
+
+  const views       = analytics.thisMonth["profile_view"]   ?? 0;
+  const clicks      = analytics.thisMonth["whatsapp_click"] ?? 0;
+  const productViews= analytics.thisMonth["product_view"]   ?? 0;
+  const offerViews  = analytics.thisMonth["offer_view"]     ?? 0;
+  const bestDay     = [...analytics.dayOfWeek].sort((a, b) => b.total - a.total)[0];
+  const dayLabel    = bestDay?.total > 0 ? bestDay.day : "sin datos";
+
+  const prompt = `Sos un consultor de marketing digital para pequeñas y medianas empresas de Argentina.
+Analizá los datos reales del siguiente comercio y devolvé EXACTAMENTE 4 recomendaciones concretas y accionables, personalizadas para este comercio específico (rubro ${fullStore.rubro}).
+
+DATOS DEL COMERCIO:
+- Nombre: ${fullStore.nombre}
+- Rubro: ${fullStore.rubro}
+- Barrio: ${fullStore.barrio}
+- Score del perfil: ${analytics.profileScore.score}/100
+
+MÉTRICAS DEL MES ACTUAL:
+- Visitas al perfil: ${views}
+- Clicks en WhatsApp: ${clicks}
+- Vistas de productos: ${productViews}
+- Vistas de ofertas: ${offerViews}
+- Tasa de conversión visitas→WhatsApp: ${analytics.conversionRate}%
+- Día de mayor actividad: ${dayLabel}
+
+PRUEBA SOCIAL:
+- Recomendaciones: ${fullStore.recommendations ?? 0}
+- Reseñas: ${fullStore.ratingCount ?? 0} (promedio: ${fullStore.ratingAvg ?? 0})
+- Suscriptores: ${fullStore._count?.subscripciones ?? 0}
+
+ÍTEMS FALTANTES EN EL PERFIL:
+${incompleteItems}
+
+Devolvé ÚNICAMENTE un objeto JSON válido con este formato exacto, sin texto adicional:
+{
+  "recomendaciones": [
+    {
+      "prioridad": "urgente",
+      "titulo": "...",
+      "accion": "...",
+      "impacto": "..."
+    }
+  ]
+}
+
+Reglas:
+- prioridad solo puede ser: "urgente", "recomendado" u "opcional"
+- titulo: máximo 8 palabras, directo
+- accion: qué hacer exactamente, máximo 25 palabras
+- impacto: qué resultado concreto esperar, máximo 20 palabras
+- Priorizá según los datos reales: si tiene 0 reseñas, pedirlas es urgente; si la conversión es baja, mejorar descripción es urgente; etc.
+- Adaptá las recomendaciones al rubro (${fullStore.rubro})`;
+
+  const groqRes = await fetch("https://api.groq.com/openai/v1/chat/completions", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${process.env.GROQ_API_KEY}`,
+    },
+    body: JSON.stringify({
+      model: "llama-3.3-70b-versatile",
+      messages: [{ role: "user", content: prompt }],
+      temperature: 0.3,
+      max_tokens: 600,
+    }),
+  });
+
+  if (!groqRes.ok) {
+    const errBody = await groqRes.text().catch(() => "");
+    console.error("[recommendations] Groq error", groqRes.status, errBody);
+    throw { status: 502, message: `Groq ${groqRes.status}: ${errBody.slice(0, 120)}` };
+  }
+
+  const groqData = await groqRes.json() as { choices: { message: { content: string } }[] };
+  const raw = groqData.choices?.[0]?.message?.content?.trim() ?? "";
+  const jsonMatch = raw.match(/\{[\s\S]*\}/);
+  if (!jsonMatch) throw { status: 502, message: "No se pudo procesar la respuesta de IA" };
+
+  return JSON.parse(jsonMatch[0]) as { recomendaciones: { prioridad: string; titulo: string; accion: string; impacto: string }[] };
 }
