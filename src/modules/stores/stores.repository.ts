@@ -17,6 +17,7 @@ const ME_SELECT = {
   horario: true, foto: true, fotos: true, logo: true, activo: true,
   isPremium: true, isFounder: true, createdAt: true, updatedAt: true,
   aceptaEnvios: true, zonaEnvio: true, costoEnvio: true,
+  recommendations: true, ratingAvg: true, ratingCount: true,
   _count: { select: { subscripciones: true } },
   offers: { orderBy: { createdAt: "desc" as const } },
   productos: { orderBy: { createdAt: "desc" as const } },
