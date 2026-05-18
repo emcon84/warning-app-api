@@ -191,16 +191,26 @@ export async function createOffer(clerkUserId: string, formData: FormData) {
 
   const photo          = await uploadFileToR2(formData.get("photo") as File | null, "comercio");
   const validaHastaRaw = formData.get("validaHasta") as string | null;
+  const precio         = sanitizeText(formData.get("precio"), 50) || undefined;
 
-  return repo.createOffer({
+  const offer = await repo.createOffer({
     comercio:    { connect: { id: store.id } },
     titulo:      title,
     descripcion: sanitizeText(formData.get("descripcion"), 500) || undefined,
     terminos:    sanitizeText(formData.get("terminos"), 1000)    || undefined,
-    precio:      sanitizeText(formData.get("precio"), 50)        || undefined,
+    precio,
     foto:        photo ?? undefined,
     validaHasta: validaHastaRaw ? new Date(validaHastaRaw) : undefined,
   });
+
+  sendPushToComercioSubscriptors(store.id, {
+    title: `${store.nombre} publicó una oferta`,
+    body:  precio ? `${title} · ${precio}` : title,
+    url:   `/comercio/${store.slug}`,
+    icon:  store.logo ?? store.foto ?? "/icon-192x192.png",
+  });
+
+  return offer;
 }
 
 export async function updateOffer(
