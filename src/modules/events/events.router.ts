@@ -57,6 +57,32 @@ export const eventsRouter = new Elysia({ prefix: "/api" })
 
   .get("/categorias-eventos", () => svc.CATEGORIAS_EVENTO)
 
+  // ── Sorteo ──────────────────────────────────────────────────────────────────
+
+  .get("/eventos/:slug/sorteo", async ({ params, clerkUserId }) => {
+    try { return await svc.getSorteoStatus(params.slug, clerkUserId ?? null); }
+    catch (e) { return serviceError(e); }
+  })
+
+  .post("/eventos/:slug/sorteo/participar", async ({ params, clerkUserId, body }) => {
+    if (!clerkUserId) return httpError(401, "Tenés que iniciar sesión");
+    const nombre = (body as any)?.nombre ?? "Participante";
+    try { return await svc.participarSorteo(params.slug, clerkUserId, nombre); }
+    catch (e) { return serviceError(e); }
+  })
+
+  .get("/eventos/:slug/sorteo/participantes", async ({ params, clerkUserId }) => {
+    if (!clerkUserId) return httpError(401, "No autorizado");
+    try { return await svc.getParticipantes(params.slug, clerkUserId); }
+    catch (e) { return serviceError(e); }
+  })
+
+  .post("/eventos/:slug/sorteo/ejecutar", async ({ params, clerkUserId }) => {
+    if (!clerkUserId) return httpError(401, "No autorizado");
+    try { return await svc.ejecutarSorteo(params.slug, clerkUserId); }
+    catch (e) { return serviceError(e); }
+  })
+
   // ── Follow status ────────────────────────────────────────────────────────────
 
   .get("/eventos/:slug/follow", async ({ params, clerkUserId }) => {

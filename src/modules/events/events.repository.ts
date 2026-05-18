@@ -103,6 +103,45 @@ export async function likePhoto(fotoId: string, ipHash: string) {
 
 // ── Event Likes ───────────────────────────────────────────────────────────────
 
+// ── Sorteo ────────────────────────────────────────────────────────────────────
+
+export async function findParticipante(eventoId: string, clerkUserId: string) {
+  return prisma.eventoSorteoParticipante.findUnique({
+    where: { eventoId_clerkUserId: { eventoId, clerkUserId } },
+  });
+}
+
+export async function countParticipantes(eventoId: string) {
+  return prisma.eventoSorteoParticipante.count({ where: { eventoId } });
+}
+
+export async function createParticipante(eventoId: string, clerkUserId: string, nombre: string) {
+  const count  = await prisma.eventoSorteoParticipante.count({ where: { eventoId } });
+  const numero = count + 1;
+  return prisma.eventoSorteoParticipante.create({
+    data: { eventoId, clerkUserId, nombre, numero },
+  });
+}
+
+export async function findAllParticipantes(eventoId: string) {
+  return prisma.eventoSorteoParticipante.findMany({
+    where: { eventoId },
+    orderBy: { numero: "asc" },
+    select: { id: true, numero: true, nombre: true, createdAt: true },
+  });
+}
+
+export async function setWinner(eventoId: string, numero: number, nombre: string) {
+  return prisma.evento.update({
+    where: { id: eventoId },
+    data: { sorteoEjecutado: true, sorteoGanadorNum: numero, sorteoGanadorNombre: nombre },
+  });
+}
+
+export async function findEventById(id: string) {
+  return prisma.evento.findUnique({ where: { id } });
+}
+
 // ── Subscriptions ──────────────────────────────────────────────────────────────
 
 export async function findSubscription(eventoId: string, clerkUserId: string) {

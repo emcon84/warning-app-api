@@ -48,6 +48,7 @@ export async function createEvent(clerkUserId: string, formData: FormData) {
     if (url) fotos.push(url);
   }
 
+  const tieneSorteo = formData.get("tieneSorteo") === "true";
   const slug = generateSlug(nombre, categoria);
 
   return repo.createEvent({
@@ -65,6 +66,7 @@ export async function createEvent(clerkUserId: string, formData: FormData) {
     precio:      sanitizeText(formData.get("precio"), 80)        || undefined,
     banner:      banner ?? undefined,
     logo:        logo   ?? undefined,
+    tieneSorteo,
     ...(fotos.length ? { fotos } : {}),
   });
 }
@@ -123,6 +125,65 @@ export async function getComments(slug: string) {
   const event = await repo.findEventBySlug(slug);
   if (!event) throw { status: 404, message: "Evento no encontrado" };
   return repo.findCommentsByEvent(event.id);
+}
+
+// ── Sorteo ────────────────────────────────────────────────────────────────────
+
+export async function getSorteoStatus(slug: string, clerkUserId: string | null) {
+  const event = await repo.findEventBySlug(slug);
+  if (!event) throw { status: 404, message: "Evento no encontrado" };
+
+  const count = await repo.countParticipantes(event.id);
+  const miParticipacion = clerkUserId ? await repo.findParticipante(event.id, clerkUserId) : null;
+
+  return {
+    tieneSorteo:       (event as any).tieneSorteo       ?? false,
+    sorteoEjecutado:   (event as any).sorteoEjecutado   ?? false,
+    sorteoGanadorNum:  (event as any).sorteoGanadorNum  ?? null,
+    sorteoGanadorNombre: (event as any).sorteoGanadorNombre ?? null,
+    totalParticipantes: count,
+    miNumero: miParticipacion?.numero ?? null,
+  };
+}
+
+export async function participarSorteo(slug: string, clerkUserId: string, nombre: string) {
+  const event = await repo.findEventBySlug(slug);
+  if (!event) throw { status: 404, message: "Evento no encontrado" };
+  if (!(event as any).tieneSorteo) throw { status: 400, message: "Este evento no tiene sorteo" };
+  if ((event as any).sorteoEjecutado) throw { status: 400, message: "El sorteo ya fue ejecutado" };
+
+  const existing = await repo.findParticipante(event.id, clerkUserId);
+  if (existing) return { numero: existing.numero, yaParticipaba: true };
+
+  const participante = await repo.createParticipante(event.id, clerkUserId, sanitizeText(nombre, 80) || "Participante");
+  return { numero: participante.numero, yaParticipaba: false };
+}
+
+export async function getParticipantes(slug: string, clerkUserId: string) {
+  const event = await repo.findEventBySlug(slug);
+  if (!event) throw { status: 404, message: "Evento no encontrado" };
+  if ((event as any).clerkUserId !== clerkUserId) throw { status: 403, message: "Solo el organizador puede ver los participantes" };
+  return repo.findAllParticipantes(event.id);
+}
+
+export async function ejecutarSorteo(slug: string, clerkUserId: string) {
+  const event = await repo.findEventBySlug(slug);
+  if (!event) throw { status: 404, message: "Evento no encontrado" };
+  if ((event as any).clerkUserId !== clerkUserId) throw { status: 403, message: "Solo el organizador puede ejecutar el sorteo" };
+  if ((event as any).sorteoEjecutado) throw { status: 400, message: "El sorteo ya fue ejecutado" };
+
+  const participantes = await repo.findAllParticipantes(event.id);
+  if (participantes.length === 0) throw { status: 400, message: "No hay participantes en el sorteo" };
+
+  const ganador = participantes[Math.floor(Math.random() * participantes.length)];
+  await repo.setWinner(event.id, ganador.numero, ganador.nombre);
+
+  notifySubscribers(event.id, slug, (event as any).nombre ?? slug, {
+    title: `Sorteo ejecutado: ${(event as any).nombre}`,
+    body:  `El numero ganador es el ${ganador.numero.toString().padStart(3, "0")} — ${ganador.nombre}!`,
+  });
+
+  return { numero: ganador.numero, nombre: ganador.nombre, total: participantes.length };
 }
 
 // ── Subscriptions ─────────────────────────────────────────────────────────────

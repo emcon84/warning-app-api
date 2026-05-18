@@ -570,7 +570,13 @@ model Evento {
 
   comentarios EventoComentario[]
   eventoFotos    EventoFoto[]
-  subscripciones EventoSubscripcion[]
+  subscripciones     EventoSubscripcion[]
+  sorteoParticipantes EventoSorteoParticipante[]
+
+  tieneSorteo       Boolean  @default(false)
+  sorteoEjecutado   Boolean  @default(false)
+  sorteoGanadorNum  Int?
+  sorteoGanadorNombre String?
 
   @@index([fecha])
   @@index([activo])
@@ -617,6 +623,21 @@ model EventoFotoLike {
 
   @@unique([fotoId, ipHash])
   @@index([fotoId])
+}
+
+model EventoSorteoParticipante {
+  id          String   @id @default(cuid())
+  eventoId    String
+  clerkUserId String
+  nombre      String
+  numero      Int
+  createdAt   DateTime @default(now())
+
+  evento      Evento   @relation(fields: [eventoId], references: [id], onDelete: Cascade)
+
+  @@unique([eventoId, clerkUserId])
+  @@unique([eventoId, numero])
+  @@index([eventoId])
 }
 
 model EventoSubscripcion {
