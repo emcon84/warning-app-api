@@ -79,3 +79,13 @@ export async function findCommentsByEvent(eventoId: string) {
 export async function createComment(data: Prisma.EventoComentarioCreateInput) {
   return prisma.eventoComentario.create({ data });
 }
+
+export async function countEventLikes(eventoId: string) {
+  return prisma.recommendation.count({ where: { targetType: "evento", targetId: eventoId } });
+}
+
+export async function createEventLike(eventoId: string, ipHash: string) {
+  return prisma.recommendation.create({
+    data: { targetType: "evento", targetId: eventoId, ipHash },
+  });
+}

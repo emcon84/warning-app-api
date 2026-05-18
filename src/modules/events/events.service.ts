@@ -117,6 +117,33 @@ export async function getComments(slug: string) {
   return repo.findCommentsByEvent(event.id);
 }
 
+export async function likeEvent(slug: string, ip: string) {
+  const event = await repo.findEventBySlug(slug);
+  if (!event) throw { status: 404, message: "Evento no encontrado" };
+
+  const ipBytes = new TextEncoder().encode(ip + event.id);
+  const hashBuf = await crypto.subtle.digest("SHA-256", ipBytes);
+  const ipHash  = Array.from(new Uint8Array(hashBuf)).map(b => b.toString(16).padStart(2, "0")).join("");
+
+  try {
+    await repo.createEventLike(event.id, ipHash);
+    const count = await repo.countEventLikes(event.id);
+    return { ok: true, count };
+  } catch (e: any) {
+    if (e?.code === "P2002") {
+      const count = await repo.countEventLikes(event.id);
+      return { ok: false, already: true, count };
+    }
+    throw e;
+  }
+}
+
+export async function getEventLikes(slug: string) {
+  const event = await repo.findEventBySlug(slug);
+  if (!event) throw { status: 404, message: "Evento no encontrado" };
+  return { count: await repo.countEventLikes(event.id) };
+}
+
 export async function addComment(slug: string, clerkUserId: string, autorNombre: string, texto: string) {
   const event = await repo.findEventBySlug(slug);
   if (!event) throw { status: 404, message: "Evento no encontrado" };

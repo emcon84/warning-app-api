@@ -57,6 +57,19 @@ export const eventsRouter = new Elysia({ prefix: "/api" })
 
   .get("/categorias-eventos", () => svc.CATEGORIAS_EVENTO)
 
+  .get("/eventos/:slug/likes", async ({ params }) => {
+    try { return await svc.getEventLikes(params.slug); }
+    catch (e) { return serviceError(e); }
+  })
+
+  .post("/eventos/:slug/like", async ({ params, headers }) => {
+    const ip = (headers as any)["x-forwarded-for"]?.split(",")[0].trim()
+            || (headers as any)["x-real-ip"]
+            || "unknown";
+    try { return await svc.likeEvent(params.slug, ip); }
+    catch (e) { return serviceError(e); }
+  })
+
   // ── Comentarios (auth) ──────────────────────────────────────────────────────
 
   .post("/eventos/:slug/comentarios", async ({ params, body, clerkUserId }) => {
