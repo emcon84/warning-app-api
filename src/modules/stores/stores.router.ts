@@ -206,6 +206,11 @@ export const storesRouter = new Elysia({ prefix: "/api" })
 
   // ── AI (productos) ──────────────────────────────────────────────────────────
 
+  .post("/comercios/me/recommendations", async ({ clerkUserId }) => {
+    try { return await svc.generateRecommendations(clerkUserId!); }
+    catch (e) { return serviceError(e); }
+  })
+
   .post("/comercios/me/productos/autocompletar", async ({ clerkUserId }) => {
     try {
       await svc.checkAndIncrementAiUsage(clerkUserId!, "analysis");

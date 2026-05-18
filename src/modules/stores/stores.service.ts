@@ -471,3 +471,96 @@ export async function checkAndIncrementAiUsage(
   await repo.incrementAiUsage(key, today);
   return store;
 }
+
+// ── AI Recommendations ────────────────────────────────────────────────────────
+
+export async function generateRecommendations(clerkUserId: string) {
+  await checkAndIncrementAiUsage(clerkUserId, "analysis");
+
+  const [analytics, fullStore] = await Promise.all([
+    getAnalytics(clerkUserId),
+    repo.findMyStoreByClerkId(clerkUserId),
+  ]);
+
+  if (!fullStore) throw { status: 404, message: "Comercio no encontrado" };
+
+  const incompleteItems = analytics.profileScore.items
+    .filter((i: { done: boolean; label: string; points: number }) => !i.done)
+    .map((i: { label: string; points: number }) => `- ${i.label} (+${i.points}pts)`)
+    .join("\n") || "- (perfil completo)";
+
+  const views       = analytics.thisMonth["profile_view"]   ?? 0;
+  const clicks      = analytics.thisMonth["whatsapp_click"] ?? 0;
+  const productViews= analytics.thisMonth["product_view"]   ?? 0;
+  const offerViews  = analytics.thisMonth["offer_view"]     ?? 0;
+  const bestDay     = [...analytics.dayOfWeek].sort((a, b) => b.total - a.total)[0];
+  const dayLabel    = bestDay?.total > 0 ? bestDay.day : "sin datos";
+
+  const prompt = `Sos un consultor de marketing digital para pequeñas y medianas empresas de Argentina.
+Analizá los datos reales del siguiente comercio y devolvé EXACTAMENTE 4 recomendaciones concretas y accionables, personalizadas para este comercio específico (rubro ${fullStore.rubro}).
+
+DATOS DEL COMERCIO:
+- Nombre: ${fullStore.nombre}
+- Rubro: ${fullStore.rubro}
+- Barrio: ${fullStore.barrio}
+- Score del perfil: ${analytics.profileScore.score}/100
+
+MÉTRICAS DEL MES ACTUAL:
+- Visitas al perfil: ${views}
+- Clicks en WhatsApp: ${clicks}
+- Vistas de productos: ${productViews}
+- Vistas de ofertas: ${offerViews}
+- Tasa de conversión visitas→WhatsApp: ${analytics.conversionRate}%
+- Día de mayor actividad: ${dayLabel}
+
+PRUEBA SOCIAL:
+- Recomendaciones: ${fullStore.recommendations ?? 0}
+- Reseñas: ${fullStore.ratingCount ?? 0} (promedio: ${fullStore.ratingAvg ?? 0})
+- Suscriptores: ${fullStore._count?.subscripciones ?? 0}
+
+ÍTEMS FALTANTES EN EL PERFIL:
+${incompleteItems}
+
+Devolvé ÚNICAMENTE un objeto JSON válido con este formato exacto, sin texto adicional:
+{
+  "recomendaciones": [
+    {
+      "prioridad": "urgente",
+      "titulo": "...",
+      "accion": "...",
+      "impacto": "..."
+    }
+  ]
+}
+
+Reglas:
+- prioridad solo puede ser: "urgente", "recomendado" u "opcional"
+- titulo: máximo 8 palabras, directo
+- accion: qué hacer exactamente, máximo 25 palabras
+- impacto: qué resultado concreto esperar, máximo 20 palabras
+- Priorizá según los datos reales: si tiene 0 reseñas, pedirlas es urgente; si la conversión es baja, mejorar descripción es urgente; etc.
+- Adaptá las recomendaciones al rubro (${fullStore.rubro})`;
+
+  const groqRes = await fetch("https://api.groq.com/openai/v1/chat/completions", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${process.env.GROQ_API_KEY}`,
+    },
+    body: JSON.stringify({
+      model: "llama-3.3-70b-versatile",
+      messages: [{ role: "user", content: prompt }],
+      temperature: 0.3,
+      max_tokens: 600,
+    }),
+  });
+
+  if (!groqRes.ok) throw { status: 502, message: "Error al generar recomendaciones con IA" };
+
+  const groqData = await groqRes.json() as { choices: { message: { content: string } }[] };
+  const raw = groqData.choices?.[0]?.message?.content?.trim() ?? "";
+  const jsonMatch = raw.match(/\{[\s\S]*\}/);
+  if (!jsonMatch) throw { status: 502, message: "No se pudo procesar la respuesta de IA" };
+
+  return JSON.parse(jsonMatch[0]) as { recomendaciones: { prioridad: string; titulo: string; accion: string; impacto: string }[] };
+}
