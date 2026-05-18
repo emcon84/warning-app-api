@@ -555,7 +555,11 @@ Reglas:
     }),
   });
 
-  if (!groqRes.ok) throw { status: 502, message: "Error al generar recomendaciones con IA" };
+  if (!groqRes.ok) {
+    const errBody = await groqRes.text().catch(() => "");
+    console.error("[recommendations] Groq error", groqRes.status, errBody);
+    throw { status: 502, message: `Groq ${groqRes.status}: ${errBody.slice(0, 120)}` };
+  }
 
   const groqData = await groqRes.json() as { choices: { message: { content: string } }[] };
   const raw = groqData.choices?.[0]?.message?.content?.trim() ?? "";
