@@ -57,6 +57,42 @@ export const eventsRouter = new Elysia({ prefix: "/api" })
 
   .get("/categorias-eventos", () => svc.CATEGORIAS_EVENTO)
 
+  // ── Barra ───────────────────────────────────────────────────────────────────
+
+  .get("/eventos/:slug/barra", async ({ params }) => {
+    try { return await svc.getBarra(params.slug); }
+    catch (e) { return serviceError(e); }
+  })
+
+  .post("/eventos/:slug/barra", async ({ params, clerkUserId, request }) => {
+    if (!clerkUserId) return httpError(401, "No autorizado");
+    try {
+      const fd = await request.formData();
+      return await svc.addBarraProduct(params.slug, clerkUserId, fd);
+    } catch (e) { return serviceError(e); }
+  })
+
+  .patch("/eventos/:slug/barra/:productoId", async ({ params, clerkUserId, request }) => {
+    if (!clerkUserId) return httpError(401, "No autorizado");
+    try {
+      const fd = await request.formData();
+      return await svc.updateBarraProduct(params.slug, clerkUserId, params.productoId, fd);
+    } catch (e) { return serviceError(e); }
+  })
+
+  .delete("/eventos/:slug/barra/:productoId", async ({ params, clerkUserId }) => {
+    if (!clerkUserId) return httpError(401, "No autorizado");
+    try { return await svc.deleteBarraProduct(params.slug, clerkUserId, params.productoId); }
+    catch (e) { return serviceError(e); }
+  })
+
+  .patch("/eventos/:slug/barra/mp-alias", async ({ params, clerkUserId, body }) => {
+    if (!clerkUserId) return httpError(401, "No autorizado");
+    const alias = (body as any)?.mpAlias ?? null;
+    try { return await svc.updateMpAlias(params.slug, clerkUserId, alias); }
+    catch (e) { return serviceError(e); }
+  })
+
   // ── Sorteo ──────────────────────────────────────────────────────────────────
 
   .get("/eventos/:slug/sorteo", async ({ params, clerkUserId }) => {
@@ -170,6 +206,15 @@ export const eventsRouter = new Elysia({ prefix: "/api" })
   .put("/eventos/:slug", async ({ clerkUserId, params, request }) => {
     try {
       const fd = await request.formData();
+      return await svc.updateEvent(clerkUserId!, params.slug, fd);
+    } catch (e) { return serviceError(e); }
+  })
+
+  .patch("/eventos/:slug/estado", async ({ clerkUserId, params, body }) => {
+    const borrador = (body as any)?.borrador ?? true;
+    try {
+      const fd = new FormData();
+      fd.append("borrador", String(borrador));
       return await svc.updateEvent(clerkUserId!, params.slug, fd);
     } catch (e) { return serviceError(e); }
   })

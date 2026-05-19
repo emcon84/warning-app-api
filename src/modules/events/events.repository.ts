@@ -9,6 +9,7 @@ const PUBLIC_SELECT = {
   activo: true, organizador: true, createdAt: true,
   tieneSorteo: true, sorteoEjecutado: true,
   sorteoGanadorNum: true, sorteoGanadorNombre: true,
+  borrador: true, countdownTexto: true,
   _count: { select: { comentarios: true } },
 } satisfies Prisma.EventoSelect;
 
@@ -21,6 +22,7 @@ export async function findAllEvents(filters: {
   return prisma.evento.findMany({
     where: {
       activo: true,
+      borrador: false,
       ...(filters.upcoming ? { fecha: { gte: now } } : {}),
       ...(filters.categoria ? { categoria: { equals: filters.categoria, mode: "insensitive" } } : {}),
       ...(filters.barrio    ? { barrio:    { contains: filters.barrio,    mode: "insensitive" } } : {}),
@@ -32,7 +34,7 @@ export async function findAllEvents(filters: {
 
 export async function findUpcomingEvents(limit = 5) {
   return prisma.evento.findMany({
-    where: { activo: true, fecha: { gte: new Date() } },
+    where: { activo: true, borrador: false, fecha: { gte: new Date() } },
     select: PUBLIC_SELECT,
     orderBy: { fecha: "asc" },
     take: limit,
@@ -104,6 +106,41 @@ export async function likePhoto(fotoId: string, ipHash: string) {
 }
 
 // ── Event Likes ───────────────────────────────────────────────────────────────
+
+// ── Barra ─────────────────────────────────────────────────────────────────────
+
+export async function findBarraByEvent(eventoId: string) {
+  return prisma.eventoProductoBarra.findMany({
+    where: { eventoId },
+    orderBy: [{ orden: "asc" }, { createdAt: "asc" }],
+  });
+}
+
+export async function createBarraProduct(data: {
+  eventoId: string; nombre: string; descripcion?: string;
+  precio: string; foto?: string; orden?: number;
+}) {
+  return prisma.eventoProductoBarra.create({ data });
+}
+
+export async function updateBarraProduct(id: string, data: {
+  nombre?: string; descripcion?: string | null;
+  precio?: string; foto?: string | null; disponible?: boolean; orden?: number;
+}) {
+  return prisma.eventoProductoBarra.update({ where: { id }, data });
+}
+
+export async function deleteBarraProduct(id: string) {
+  return prisma.eventoProductoBarra.delete({ where: { id } });
+}
+
+export async function findBarraProduct(id: string) {
+  return prisma.eventoProductoBarra.findUnique({ where: { id } });
+}
+
+export async function setMpAlias(eventoId: string, mpAlias: string | null) {
+  return prisma.evento.update({ where: { id: eventoId }, data: { mpAlias } });
+}
 
 // ── Sorteo ────────────────────────────────────────────────────────────────────
 

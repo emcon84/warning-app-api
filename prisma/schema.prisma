@@ -573,13 +573,18 @@ model Evento {
   subscripciones     EventoSubscripcion[]
   sorteoParticipantes EventoSorteoParticipante[]
 
-  tieneSorteo       Boolean  @default(false)
-  sorteoEjecutado   Boolean  @default(false)
-  sorteoGanadorNum  Int?
+  tieneSorteo         Boolean  @default(false)
+  sorteoEjecutado     Boolean  @default(false)
+  sorteoGanadorNum    Int?
   sorteoGanadorNombre String?
+  mpAlias             String?
+  barra               EventoProductoBarra[]
+  borrador            Boolean  @default(true)
+  countdownTexto      String?
 
   @@index([fecha])
   @@index([activo])
+  @@index([borrador])
   @@index([categoria])
   @@index([clerkUserId])
 }
@@ -623,6 +628,23 @@ model EventoFotoLike {
 
   @@unique([fotoId, ipHash])
   @@index([fotoId])
+}
+
+model EventoProductoBarra {
+  id          String   @id @default(cuid())
+  eventoId    String
+  nombre      String
+  descripcion String?
+  precio      String
+  foto        String?
+  disponible  Boolean  @default(true)
+  orden       Int      @default(0)
+  createdAt   DateTime @default(now())
+
+  evento      Evento   @relation(fields: [eventoId], references: [id], onDelete: Cascade)
+
+  @@index([eventoId])
+  @@index([orden])
 }
 
 model EventoSorteoParticipante {

@@ -49,6 +49,7 @@ export async function createEvent(clerkUserId: string, formData: FormData) {
   }
 
   const tieneSorteo = formData.get("tieneSorteo") === "true";
+  const borrador    = formData.get("borrador") !== "false";
   const slug = generateSlug(nombre, categoria);
 
   return repo.createEvent({
@@ -67,6 +68,7 @@ export async function createEvent(clerkUserId: string, formData: FormData) {
     banner:      banner ?? undefined,
     logo:        logo   ?? undefined,
     tieneSorteo,
+    borrador,
     ...(fotos.length ? { fotos } : {}),
   });
 }
@@ -87,12 +89,16 @@ export async function updateEvent(clerkUserId: string, slug: string, formData: F
   const categoria = formData.get("categoria");
   if (categoria && CATEGORIAS_EVENTO.includes(categoria as any)) patch.categoria = categoria;
 
-  const fechaRaw    = formData.get("fecha")       as string | null;
-  const fechaFinRaw = formData.get("fechaFin")    as string | null;
-  const sorteoRaw   = formData.get("tieneSorteo") as string | null;
+  const fechaRaw         = formData.get("fecha")          as string | null;
+  const fechaFinRaw      = formData.get("fechaFin")       as string | null;
+  const sorteoRaw        = formData.get("tieneSorteo")    as string | null;
+  const borradorRaw      = formData.get("borrador")       as string | null;
+  const countdownTextoRaw = formData.get("countdownTexto") as string | null;
   if (fechaRaw)    patch.fecha       = new Date(fechaRaw);
   if (fechaFinRaw) patch.fechaFin    = new Date(fechaFinRaw);
   if (sorteoRaw !== null) patch.tieneSorteo = sorteoRaw === "true";
+  if (borradorRaw !== null) patch.borrador = borradorRaw === "true";
+  if (countdownTextoRaw !== null) patch.countdownTexto = sanitizeText(countdownTextoRaw, 100) || null;
 
   const banner = await uploadFileToR2(formData.get("banner") as File | null, "evento");
   const logo   = await uploadFileToR2(formData.get("logo")   as File | null, "evento");
@@ -127,6 +133,78 @@ export async function getComments(slug: string) {
   const event = await repo.findEventBySlug(slug);
   if (!event) throw { status: 404, message: "Evento no encontrado" };
   return repo.findCommentsByEvent(event.id);
+}
+
+// ── Barra ─────────────────────────────────────────────────────────────────────
+
+export async function getBarra(slug: string) {
+  const event = await repo.findEventBySlug(slug);
+  if (!event) throw { status: 404, message: "Evento no encontrado" };
+  const productos = await repo.findBarraByEvent(event.id);
+  return { productos, mpAlias: (event as any).mpAlias ?? null };
+}
+
+export async function addBarraProduct(slug: string, clerkUserId: string, formData: FormData) {
+  const event = await repo.findEventBySlugAndOwner(slug, clerkUserId);
+  if (!event) throw { status: 403, message: "No autorizado" };
+
+  const nombre = sanitizeText(formData.get("nombre"), 100);
+  const precio = sanitizeText(formData.get("precio"), 50);
+  if (!nombre || !precio) throw { status: 400, message: "Nombre y precio son obligatorios" };
+
+  const foto = await uploadFileToR2(formData.get("foto") as File | null, "evento");
+  const ordenRaw = formData.get("orden");
+
+  return repo.createBarraProduct({
+    eventoId:    event.id,
+    nombre,
+    precio,
+    descripcion: sanitizeText(formData.get("descripcion"), 200) || undefined,
+    foto:        foto ?? undefined,
+    orden:       ordenRaw ? parseInt(ordenRaw as string) || 0 : 0,
+  });
+}
+
+export async function updateBarraProduct(slug: string, clerkUserId: string, productoId: string, formData: FormData) {
+  const event = await repo.findEventBySlugAndOwner(slug, clerkUserId);
+  if (!event) throw { status: 403, message: "No autorizado" };
+
+  const producto = await repo.findBarraProduct(productoId);
+  if (!producto || producto.eventoId !== event.id) throw { status: 404, message: "Producto no encontrado" };
+
+  const patch: Record<string, unknown> = {};
+  const nombre = formData.get("nombre");
+  const precio = formData.get("precio");
+  const descripcion = formData.get("descripcion");
+  const disponible  = formData.get("disponible");
+
+  if (nombre)      patch.nombre      = sanitizeText(nombre, 100);
+  if (precio)      patch.precio      = sanitizeText(precio, 50);
+  if (descripcion !== null) patch.descripcion = sanitizeText(descripcion, 200) || null;
+  if (disponible !== null)  patch.disponible  = disponible === "true";
+
+  const foto = await uploadFileToR2(formData.get("foto") as File | null, "evento");
+  if (foto) patch.foto = foto;
+
+  return repo.updateBarraProduct(productoId, patch);
+}
+
+export async function deleteBarraProduct(slug: string, clerkUserId: string, productoId: string) {
+  const event = await repo.findEventBySlugAndOwner(slug, clerkUserId);
+  if (!event) throw { status: 403, message: "No autorizado" };
+
+  const producto = await repo.findBarraProduct(productoId);
+  if (!producto || producto.eventoId !== event.id) throw { status: 404, message: "Producto no encontrado" };
+
+  await repo.deleteBarraProduct(productoId);
+  return { ok: true };
+}
+
+export async function updateMpAlias(slug: string, clerkUserId: string, mpAlias: string | null) {
+  const event = await repo.findEventBySlugAndOwner(slug, clerkUserId);
+  if (!event) throw { status: 403, message: "No autorizado" };
+  await repo.setMpAlias(event.id, mpAlias ? sanitizeText(mpAlias, 100) : null);
+  return { ok: true };
 }
 
 // ── Sorteo ────────────────────────────────────────────────────────────────────
