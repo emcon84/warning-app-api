@@ -240,17 +240,15 @@ export async function participarSorteo(slug: string, clerkUserId: string, nombre
 }
 
 export async function getParticipantes(slug: string, clerkUserId: string) {
-  const event = await repo.findEventBySlug(slug);
-  if (!event) throw { status: 404, message: "Evento no encontrado" };
-  if ((event as any).clerkUserId !== clerkUserId) throw { status: 403, message: "Solo el organizador puede ver los participantes" };
+  const event = await repo.findEventBySlugAndOwner(slug, clerkUserId);
+  if (!event) throw { status: 403, message: "No autorizado" };
   return repo.findAllParticipantes(event.id);
 }
 
 export async function ejecutarSorteo(slug: string, clerkUserId: string) {
-  const event = await repo.findEventBySlug(slug);
-  if (!event) throw { status: 404, message: "Evento no encontrado" };
-  if ((event as any).clerkUserId !== clerkUserId) throw { status: 403, message: "Solo el organizador puede ejecutar el sorteo" };
-  if ((event as any).sorteoEjecutado) throw { status: 400, message: "El sorteo ya fue ejecutado" };
+  const event = await repo.findEventBySlugAndOwner(slug, clerkUserId);
+  if (!event) throw { status: 403, message: "No autorizado" };
+  if (event.sorteoEjecutado) throw { status: 400, message: "El sorteo ya fue ejecutado" };
 
   const participantes = await repo.findAllParticipantes(event.id);
   if (participantes.length === 0) throw { status: 400, message: "No hay participantes en el sorteo" };
