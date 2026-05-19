@@ -10,13 +10,16 @@ import { professionalsRouter } from "./modules/professionals/professionals.route
 import { employeesRouter } from "./modules/employees/employees.router";
 import { vacanciesRouter } from "./modules/vacancies/vacancies.router";
 import { adminRouter } from "./modules/admin/admin.router";
+import { eventsRouter } from "./modules/events/events.router";
 
 export const app = new Elysia()
 
   // ── CORS ─────────────────────────────────────────────────────────────────
   .use(
     cors({
-      origin: process.env.CORS_ORIGIN || "*",
+      origin: process.env.CORS_ORIGIN
+        ? process.env.CORS_ORIGIN.split(",").map(o => o.trim())
+        : true,
       methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
       allowedHeaders: ["Content-Type", "Authorization", "X-Professional-Code"],
     })
@@ -93,6 +96,7 @@ export const app = new Elysia()
   .use(employeesRouter)
   .use(vacanciesRouter)
   .use(adminRouter)
+  .use(eventsRouter)
 
   // ── Global error handler ──────────────────────────────────────────────────
   .onError(({ code, error, set }) => {
