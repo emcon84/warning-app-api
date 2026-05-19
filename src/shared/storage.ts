@@ -1,4 +1,5 @@
 import { S3Client, PutObjectCommand } from "@aws-sdk/client-s3";
+import sharp from "sharp";
 
 let _client: S3Client | null = null;
 
@@ -15,46 +16,52 @@ function getClient(): S3Client {
   return _client;
 }
 
-const BUCKET = () => process.env.R2_BUCKET_NAME || "warning-app-images";
+const BUCKET     = () => process.env.R2_BUCKET_NAME || "warning-app-images";
 const PUBLIC_URL = () => process.env.R2_PUBLIC_URL!;
 
-/**
- * Sube un buffer a Cloudflare R2 y devuelve la URL pública.
- * El filename debe incluir la extensión: `comercio_{uuid}.jpg`
- */
+const SKIP_CONVERT = new Set(["image/svg+xml", "image/gif"]);
+const MAX_WIDTH    = 1920;
+
+async function toWebP(input: Buffer): Promise<Buffer> {
+  return sharp(input)
+    .resize({ width: MAX_WIDTH, withoutEnlargement: true })
+    .webp({ quality: 82 })
+    .toBuffer();
+}
+
 export async function uploadToR2(
-  buffer: ArrayBuffer,
+  buffer: Buffer | ArrayBuffer,
   filename: string,
   contentType: string
 ): Promise<string> {
+  const body = buffer instanceof Buffer ? buffer : Buffer.from(buffer);
   await getClient().send(
     new PutObjectCommand({
       Bucket:      BUCKET(),
       Key:         filename,
-      Body:        Buffer.from(buffer),
+      Body:        body,
       ContentType: contentType,
     })
   );
   return `${PUBLIC_URL()}/${filename}`;
 }
 
-/**
- * Extrae la extensión de un File y genera un nombre único para R2.
- * prefix: "comercio" | "producto" | "post" | "professional"
- */
-export function generateFilename(file: File, prefix: string): string {
-  const ext = file.name.split(".").pop()?.toLowerCase() || "jpg";
-  return `${prefix}_${crypto.randomUUID()}.${ext}`;
-}
-
-/**
- * Sube un File a R2 si tiene contenido. Devuelve la URL o null.
- */
 export async function uploadFileToR2(
   file: File | null | undefined,
   prefix: string
 ): Promise<string | null> {
   if (!file || file.size === 0) return null;
-  const filename = generateFilename(file, prefix);
-  return uploadToR2(await file.arrayBuffer(), filename, file.type || "image/jpeg");
+
+  const mime = (file.type || "image/jpeg").toLowerCase();
+
+  if (SKIP_CONVERT.has(mime)) {
+    const ext      = file.name.split(".").pop()?.toLowerCase() || "bin";
+    const filename = `${prefix}_${crypto.randomUUID()}.${ext}`;
+    return uploadToR2(await file.arrayBuffer(), filename, mime);
+  }
+
+  const original = Buffer.from(await file.arrayBuffer());
+  const webp     = await toWebP(original);
+  const filename = `${prefix}_${crypto.randomUUID()}.webp`;
+  return uploadToR2(webp, filename, "image/webp");
 }
