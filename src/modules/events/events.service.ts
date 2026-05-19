@@ -102,7 +102,7 @@ export async function updateEvent(clerkUserId: string, slug: string, formData: F
   if (borradorRaw !== null) patch.borrador = borradorRaw === "true";
   if (countdownTextoRaw !== null) patch.countdownTexto = sanitizeText(countdownTextoRaw, 100) || null;
   const sorteoPremioRaw = formData.get("sorteoPremio") as string | null;
-  if (sorteoPremioRaw !== null) patch.sorteoPremio = sanitizeText(sorteoPremioRaw, 120) || null;
+  if (sorteoPremioRaw !== null && event.borrador) patch.sorteoPremio = sanitizeText(sorteoPremioRaw, 120) || null;
 
   const banner = await uploadFileToR2(formData.get("banner") as File | null, "evento");
   const logo   = await uploadFileToR2(formData.get("logo")   as File | null, "evento");
