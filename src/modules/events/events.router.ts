@@ -211,6 +211,7 @@ export const eventsRouter = new Elysia({ prefix: "/api" })
   })
 
   .delete("/eventos/:slug/sorteo/reset", async ({ clerkUserId, params }) => {
+    console.log("[sorteo/reset] clerkUserId:", clerkUserId, "slug:", params.slug);
     try { return await svc.resetSorteo(clerkUserId!, params.slug); }
     catch (e) { return serviceError(e); }
   })
