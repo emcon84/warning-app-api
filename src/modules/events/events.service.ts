@@ -252,6 +252,7 @@ export async function getParticipantes(slug: string, clerkUserId: string) {
 
 export async function resetSorteo(slug: string, clerkUserId: string) {
   const event = await repo.findEventBySlugAndOwner(slug, clerkUserId);
+  console.log("[resetSorteo] slug:", slug, "clerkUserId:", clerkUserId, "event:", event?.id ?? "null");
   if (!event) throw { status: 403, message: "No autorizado" };
   if (!event.borrador) throw { status: 400, message: "Solo se puede resetear un sorteo mientras el evento es borrador" };
   await repo.resetSorteo(event.id);
