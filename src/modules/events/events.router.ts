@@ -210,6 +210,11 @@ export const eventsRouter = new Elysia({ prefix: "/api" })
     } catch (e) { return serviceError(e); }
   })
 
+  .delete("/eventos/:slug/sorteo/reset", async ({ clerkUserId, params }) => {
+    try { return await svc.resetSorteo(clerkUserId!, params.slug); }
+    catch (e) { return serviceError(e); }
+  })
+
   .patch("/eventos/:slug/estado", async ({ clerkUserId, params, body }) => {
     const borrador = (body as any)?.borrador ?? true;
     try {
