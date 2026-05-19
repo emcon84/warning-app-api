@@ -577,6 +577,7 @@ model Evento {
   sorteoEjecutado     Boolean  @default(false)
   sorteoGanadorNum    Int?
   sorteoGanadorNombre String?
+  sorteoPremio        String?
   mpAlias             String?
   barra               EventoProductoBarra[]
   borrador            Boolean  @default(true)
