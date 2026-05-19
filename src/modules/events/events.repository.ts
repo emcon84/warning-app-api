@@ -170,6 +170,17 @@ export async function findAllParticipantes(eventoId: string) {
   });
 }
 
+export async function deleteAllParticipantes(eventoId: string) {
+  return prisma.eventoSorteoParticipante.deleteMany({ where: { eventoId } });
+}
+
+export async function resetSorteo(eventoId: string) {
+  return prisma.evento.update({
+    where: { id: eventoId },
+    data: { sorteoEjecutado: false, sorteoGanadorNum: null, sorteoGanadorNombre: null },
+  });
+}
+
 export async function setWinner(eventoId: string, numero: number, nombre: string) {
   return prisma.evento.update({
     where: { id: eventoId },

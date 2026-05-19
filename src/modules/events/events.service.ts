@@ -250,6 +250,15 @@ export async function getParticipantes(slug: string, clerkUserId: string) {
   return repo.findAllParticipantes(event.id);
 }
 
+export async function resetSorteo(slug: string, clerkUserId: string) {
+  const event = await repo.findEventBySlugAndOwner(slug, clerkUserId);
+  if (!event) throw { status: 403, message: "No autorizado" };
+  if (!event.borrador) throw { status: 400, message: "Solo se puede resetear un sorteo mientras el evento es borrador" };
+  await repo.deleteAllParticipantes(event.id);
+  await repo.resetSorteo(event.id);
+  return { ok: true };
+}
+
 export async function ejecutarSorteo(slug: string, clerkUserId: string) {
   const event = await repo.findEventBySlugAndOwner(slug, clerkUserId);
   if (!event) throw { status: 403, message: "No autorizado" };
