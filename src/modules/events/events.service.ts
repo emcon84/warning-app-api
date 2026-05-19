@@ -48,8 +48,9 @@ export async function createEvent(clerkUserId: string, formData: FormData) {
     if (url) fotos.push(url);
   }
 
-  const tieneSorteo = formData.get("tieneSorteo") === "true";
-  const borrador    = formData.get("borrador") !== "false";
+  const tieneSorteo  = formData.get("tieneSorteo") === "true";
+  const borrador     = formData.get("borrador") !== "false";
+  const sorteoPremio = sanitizeText(formData.get("sorteoPremio"), 120) || undefined;
   const slug = generateSlug(nombre, categoria);
 
   return repo.createEvent({
@@ -69,6 +70,7 @@ export async function createEvent(clerkUserId: string, formData: FormData) {
     logo:        logo   ?? undefined,
     tieneSorteo,
     borrador,
+    ...(sorteoPremio ? { sorteoPremio } : {}),
     ...(fotos.length ? { fotos } : {}),
   });
 }
@@ -99,6 +101,8 @@ export async function updateEvent(clerkUserId: string, slug: string, formData: F
   if (sorteoRaw !== null) patch.tieneSorteo = sorteoRaw === "true";
   if (borradorRaw !== null) patch.borrador = borradorRaw === "true";
   if (countdownTextoRaw !== null) patch.countdownTexto = sanitizeText(countdownTextoRaw, 100) || null;
+  const sorteoPremioRaw = formData.get("sorteoPremio") as string | null;
+  if (sorteoPremioRaw !== null) patch.sorteoPremio = sanitizeText(sorteoPremioRaw, 120) || null;
 
   const banner = await uploadFileToR2(formData.get("banner") as File | null, "evento");
   const logo   = await uploadFileToR2(formData.get("logo")   as File | null, "evento");
@@ -217,12 +221,13 @@ export async function getSorteoStatus(slug: string, clerkUserId: string | null) 
   const miParticipacion = clerkUserId ? await repo.findParticipante(event.id, clerkUserId) : null;
 
   return {
-    tieneSorteo:       (event as any).tieneSorteo       ?? false,
-    sorteoEjecutado:   (event as any).sorteoEjecutado   ?? false,
-    sorteoGanadorNum:  (event as any).sorteoGanadorNum  ?? null,
+    tieneSorteo:         (event as any).tieneSorteo         ?? false,
+    sorteoEjecutado:     (event as any).sorteoEjecutado     ?? false,
+    sorteoGanadorNum:    (event as any).sorteoGanadorNum    ?? null,
     sorteoGanadorNombre: (event as any).sorteoGanadorNombre ?? null,
-    totalParticipantes: count,
-    miNumero: miParticipacion?.numero ?? null,
+    sorteoPremio:        (event as any).sorteoPremio        ?? null,
+    totalParticipantes:  count,
+    miNumero:            miParticipacion?.numero ?? null,
   };
 }
 

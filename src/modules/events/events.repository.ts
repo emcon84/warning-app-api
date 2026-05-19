@@ -8,7 +8,7 @@ const PUBLIC_SELECT = {
   banner: true, logo: true, fotos: true,
   activo: true, organizador: true, createdAt: true,
   tieneSorteo: true, sorteoEjecutado: true,
-  sorteoGanadorNum: true, sorteoGanadorNombre: true,
+  sorteoGanadorNum: true, sorteoGanadorNombre: true, sorteoPremio: true,
   borrador: true, countdownTexto: true,
   _count: { select: { comentarios: true } },
 } satisfies Prisma.EventoSelect;
