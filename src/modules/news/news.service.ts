@@ -75,6 +75,7 @@ const PORTALS: Record<string, PortalConfig> = {
     dateSelector: 'meta[itemprop="datePublished"]',
     imageAttr: "src",
     urlPrefix: "https://www.vialibre.ar",
+    useProxy: true,
   },
 };
 
