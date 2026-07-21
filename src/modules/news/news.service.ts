@@ -16,6 +16,7 @@ export interface NewsArticle {
 interface PortalConfig {
   name: string;
   feedUrl: string;
+  feedType?: 'html' | 'rss';
   articleSelector: string;
   titleSelector: string;
   urlSelector: string;
@@ -52,6 +53,29 @@ const PORTALS: Record<string, PortalConfig> = {
     urlPrefix: "",
     imageFromStyle: true,
   },
+  reconquistanoticias: {
+    name: "Reconquista Noticias",
+    feedUrl: "https://reconquistanoticias.blogspot.com/feeds/posts/default?alt=rss",
+    feedType: "rss",
+    articleSelector: "item",
+    titleSelector: "title",
+    urlSelector: "link",
+    imageSelector: "",
+    dateSelector: "pubDate",
+    imageAttr: "",
+    urlPrefix: "",
+  },
+  vialibre: {
+    name: "Vía Libre",
+    feedUrl: "https://www.vialibre.ar",
+    articleSelector: 'article[itemtype="http://schema.org/NewsArticle"]',
+    titleSelector: 'h2[itemprop="headline"]',
+    urlSelector: 'a[itemprop="url"]',
+    imageSelector: 'img[itemprop="image"]',
+    dateSelector: 'meta[itemprop="datePublished"]',
+    imageAttr: "src",
+    urlPrefix: "https://www.vialibre.ar",
+  },
 };
 
 // ── Cache ────────────────────────────────────────────────────────────────────
@@ -74,7 +98,9 @@ function isCacheValid(portal: string): boolean {
 
 function extractId(url: string): string {
   const match = url.match(/\/(\d+)-/);
-  return match ? match[1] : url;
+  if (match) return match[1];
+  // fallback: hash simple del path para URLs sin ID numérico (blogspot)
+  return url.replace(/https?:\/\//, "").replace(/[^a-zA-Z0-9]/g, "_").slice(0, 60);
 }
 
 function extractImageUrl($el: cheerio.Cheerio, config: PortalConfig): string | null {
@@ -96,6 +122,56 @@ function extractDateFromUrl(url: string): string {
   return "";
 }
 
+function parseRssFeed(config: PortalConfig, xml: string): NewsArticle[] {
+  const $ = cheerio.load(xml, { xmlMode: true });
+  const articles: NewsArticle[] = [];
+
+  $(config.articleSelector || "item").each((_, el) => {
+    const $item = $(el);
+
+    const title = sanitizeText($item.find("title").first().text(), 200);
+    if (!title) return;
+
+    const rawUrl = $item.find("link").first().text() || "";
+    if (!rawUrl) return;
+
+    const fullUrl = rawUrl.startsWith("http") ? rawUrl : `${config.urlPrefix}${rawUrl}`;
+
+    // Extract image from description HTML
+    let imageUrl: string | null = null;
+    const descHtml = $item.find("description").first().text() || "";
+    if (descHtml) {
+      const $desc = cheerio.load(descHtml);
+      imageUrl = $desc("img").first().attr("src") || null;
+    }
+
+    let publishedAt = "";
+    const dateStr = $item.find("pubDate").first().text() || "";
+    if (dateStr) {
+      const d = new Date(dateStr);
+      if (!isNaN(d.getTime())) publishedAt = d.toISOString();
+    }
+    if (!publishedAt) {
+      publishedAt = extractDateFromUrl(fullUrl);
+    }
+    if (!publishedAt) {
+      publishedAt = new Date().toISOString();
+    }
+
+    articles.push({
+      id: extractId(fullUrl),
+      title,
+      excerpt: title,
+      imageUrl,
+      sourceUrl: fullUrl,
+      sourceName: config.name,
+      publishedAt,
+    });
+  });
+
+  return articles;
+}
+
 export async function scrapePortal(portalKey: string): Promise<NewsArticle[]> {
   const config = PORTALS[portalKey];
   if (!config) throw { status: 404, message: `Portal "${portalKey}" no encontrado` };
@@ -115,8 +191,15 @@ export async function scrapePortal(portalKey: string): Promise<NewsArticle[]> {
 
   if (!res.ok) throw { status: 502, message: `Error al fetching ${config.name}: ${res.status}` };
 
-  const html = await res.text();
-  const $ = cheerio.load(html);
+  const body = await res.text();
+
+  // RSS feed parsing
+  if (config.feedType === "rss") {
+    return parseRssFeed(config, body);
+  }
+
+  // HTML parsing with Cheerio
+  const $ = cheerio.load(body);
   const articles: NewsArticle[] = [];
 
   $(config.articleSelector).each((_, el) => {
