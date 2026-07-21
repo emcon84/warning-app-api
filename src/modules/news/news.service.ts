@@ -29,7 +29,7 @@ interface PortalConfig {
 const PORTALS: Record<string, PortalConfig> = {
   reconquistahoy: {
     name: "Reconquista Hoy",
-    feedUrl: "https://reconquistahoy.com.ar",
+    feedUrl: "https://www.reconquistahoy.com",
     articleSelector: 'article[itemscope][itemtype*="NewsArticle"]',
     titleSelector: '[itemprop="headline"]',
     urlSelector: 'a[itemprop="url"]',
