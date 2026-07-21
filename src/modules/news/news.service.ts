@@ -62,7 +62,7 @@ interface CacheEntry {
 }
 
 const cache = new Map<string, CacheEntry>();
-const CACHE_TTL_MS = 5 * 60 * 1000;
+const CACHE_TTL_MS = 60 * 60 * 1000;
 
 function isCacheValid(portal: string): boolean {
   const entry = cache.get(portal);
@@ -107,7 +107,7 @@ export async function scrapePortal(portalKey: string): Promise<NewsArticle[]> {
   };
 
   if (config.useProxy && scrapingBeeKey) {
-    url = `https://app.scrapingbee.com/api/v1/?api_key=${scrapingBeeKey}&url=${encodeURIComponent(config.feedUrl)}&render_js=false&premium_proxy=true`;
+    url = `https://app.scrapingbee.com/api/v1/?api_key=${scrapingBeeKey}&url=${encodeURIComponent(config.feedUrl)}&render_js=false&stealth_proxy=true`;
     headers = {};
   }
 
@@ -185,7 +185,7 @@ let periodicTimer: ReturnType<typeof setInterval> | null = null;
 
 const PORTAL_KEYS = Object.keys(PORTALS);
 
-export function startPeriodicRefresh(intervalMs: number = 5 * 60 * 1000): void {
+export function startPeriodicRefresh(intervalMs: number = 60 * 60 * 1000): void {
   if (periodicTimer) return;
 
   console.log(`📰 News: periodic refresh cada ${intervalMs / 1000}s para [${PORTAL_KEYS.join(", ")}]`);
