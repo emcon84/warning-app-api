@@ -29,18 +29,6 @@ interface PortalConfig {
 }
 
 const PORTALS: Record<string, PortalConfig> = {
-  reconquistahoy: {
-    name: "Reconquista Hoy",
-    feedUrl: "https://www.reconquistahoy.com",
-    articleSelector: 'article[itemscope][itemtype*="NewsArticle"]',
-    titleSelector: '[itemprop="headline"]',
-    urlSelector: 'a[itemprop="url"]',
-    imageSelector: 'picture img.pic',
-    dateSelector: '[itemprop="datePublished"]',
-    imageAttr: "src",
-    urlPrefix: "",
-    useProxy: true,
-  },
   reconquistaar: {
     name: "Reconquista.com.ar",
     feedUrl: "https://www.reconquista.com.ar",
@@ -64,18 +52,6 @@ const PORTALS: Record<string, PortalConfig> = {
     dateSelector: "pubDate",
     imageAttr: "",
     urlPrefix: "",
-  },
-  vialibre: {
-    name: "Vía Libre",
-    feedUrl: "https://www.vialibre.ar",
-    articleSelector: 'article[itemtype="http://schema.org/NewsArticle"]',
-    titleSelector: 'h2[itemprop="headline"]',
-    urlSelector: 'a[itemprop="url"]',
-    imageSelector: 'img[itemprop="image"]',
-    dateSelector: 'meta[itemprop="datePublished"]',
-    imageAttr: "src",
-    urlPrefix: "https://www.vialibre.ar",
-    useProxy: true,
   },
 };
 
@@ -177,18 +153,11 @@ export async function scrapePortal(portalKey: string): Promise<NewsArticle[]> {
   const config = PORTALS[portalKey];
   if (!config) throw { status: 404, message: `Portal "${portalKey}" no encontrado` };
 
-  const scrapingBeeKey = process.env.SCRAPINGBEE_API_KEY;
-  let url = config.feedUrl;
-  let headers: Record<string, string> = {
-    "User-Agent": "Mozilla/5.0 (compatible; ReportesReconquistaBot/1.0; +https://reportesreconquista.com)",
-  };
-
-  if (config.useProxy && scrapingBeeKey) {
-    url = `https://app.scrapingbee.com/api/v1/?api_key=${scrapingBeeKey}&url=${encodeURIComponent(config.feedUrl)}&render_js=false&stealth_proxy=true`;
-    headers = {};
-  }
-
-  const res = await fetch(url, { headers });
+  const res = await fetch(config.feedUrl, {
+    headers: {
+      "User-Agent": "Mozilla/5.0 (compatible; ReportesReconquistaBot/1.0; +https://reportesreconquista.com)",
+    },
+  });
 
   if (!res.ok) throw { status: 502, message: `Error al fetching ${config.name}: ${res.status}` };
 
@@ -243,7 +212,7 @@ export async function scrapePortal(portalKey: string): Promise<NewsArticle[]> {
 
 // ── Service ───────────────────────────────────────────────────────────────────
 
-export async function getNews(portal: string = "reconquistahoy"): Promise<NewsArticle[]> {
+export async function getNews(portal: string = "reconquistaar"): Promise<NewsArticle[]> {
   if (!PORTALS[portal]) throw { status: 404, message: `Portal "${portal}" no encontrado` };
 
   if (isCacheValid(portal)) {
@@ -255,7 +224,7 @@ export async function getNews(portal: string = "reconquistahoy"): Promise<NewsAr
   return articles;
 }
 
-export async function refreshNews(portal: string = "reconquistahoy"): Promise<NewsArticle[]> {
+export async function refreshNews(portal: string = "reconquistaar"): Promise<NewsArticle[]> {
   if (!PORTALS[portal]) throw { status: 404, message: `Portal "${portal}" no encontrado` };
 
   const articles = await scrapePortal(portal);

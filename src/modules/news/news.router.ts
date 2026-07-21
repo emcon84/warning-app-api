@@ -26,7 +26,7 @@ export const newsRouter = new Elysia({ prefix: "/api" })
 
   .get("/news", async ({ query }) => {
     try {
-      return await svc.getNews(query.portal || "reconquistahoy");
+      return await svc.getNews(query.portal || "reconquistaar");
     } catch (e) { return serviceError(e); }
   }, {
     query: t.Object({
@@ -36,7 +36,7 @@ export const newsRouter = new Elysia({ prefix: "/api" })
 
   .get("/news/refresh", async ({ query }) => {
     try {
-      return await svc.refreshNews(query.portal || "reconquistahoy");
+      return await svc.refreshNews(query.portal || "reconquistaar");
     } catch (e) { return serviceError(e); }
   }, {
     query: t.Object({
