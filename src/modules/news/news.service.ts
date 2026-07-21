@@ -24,6 +24,7 @@ interface PortalConfig {
   imageAttr: string;
   urlPrefix: string;
   imageFromStyle?: boolean;
+  useProxy?: boolean;
 }
 
 const PORTALS: Record<string, PortalConfig> = {
@@ -37,6 +38,7 @@ const PORTALS: Record<string, PortalConfig> = {
     dateSelector: '[itemprop="datePublished"]',
     imageAttr: "src",
     urlPrefix: "",
+    useProxy: true,
   },
   reconquistaar: {
     name: "Reconquista.com.ar",
@@ -98,11 +100,18 @@ export async function scrapePortal(portalKey: string): Promise<NewsArticle[]> {
   const config = PORTALS[portalKey];
   if (!config) throw { status: 404, message: `Portal "${portalKey}" no encontrado` };
 
-  const res = await fetch(config.feedUrl, {
-    headers: {
-      "User-Agent": "Mozilla/5.0 (compatible; ReportesReconquistaBot/1.0; +https://reportesreconquista.com)",
-    },
-  });
+  const scrapingBeeKey = process.env.SCRAPINGBEE_API_KEY;
+  let url = config.feedUrl;
+  let headers: Record<string, string> = {
+    "User-Agent": "Mozilla/5.0 (compatible; ReportesReconquistaBot/1.0; +https://reportesreconquista.com)",
+  };
+
+  if (config.useProxy && scrapingBeeKey) {
+    url = `https://app.scrapingbee.com/api/v1/?api_key=${scrapingBeeKey}&url=${encodeURIComponent(config.feedUrl)}&render_js=false&premium_proxy=true`;
+    headers = {};
+  }
+
+  const res = await fetch(url, { headers });
 
   if (!res.ok) throw { status: 502, message: `Error al fetching ${config.name}: ${res.status}` };
 
