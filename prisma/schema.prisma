@@ -105,8 +105,9 @@ model Farmacia {
   id        String   @id @default(cuid())
   nombre    String
   direccion String
-  telefono  String?
-  lat       Float
+  telefono      String?
+  googleMapsUrl String?
+  lat           Float
   lng       Float
   activo    Boolean  @default(true)
   createdAt DateTime @default(now())

@@ -4,7 +4,7 @@ import type { Prisma } from "@prisma/client";
 // ── Select presets ────────────────────────────────────────────────────────────
 
 const FARMACIA_SELECT = {
-  id: true, nombre: true, direccion: true, telefono: true,
+  id: true, nombre: true, direccion: true, telefono: true, googleMapsUrl: true,
   lat: true, lng: true, activo: true, createdAt: true,
 } satisfies Prisma.FarmaciaSelect;
 
