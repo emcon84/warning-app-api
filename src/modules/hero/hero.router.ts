@@ -86,12 +86,12 @@ export const heroRouter = new Elysia({ prefix: "/api" })
       if (!title) return httpError(400, "El título es obligatorio");
       return await svc.createPromoSlide({
         title,
-        subtitle: fd.get("subtitle") as string | undefined,
-        ctaText: fd.get("ctaText") as string | undefined,
-        ctaUrl: fd.get("ctaUrl") as string | undefined,
+        subtitle: fd.get("subtitle") as string || undefined,
+        ctaText: fd.get("ctaText") as string || undefined,
+        ctaUrl: fd.get("ctaUrl") as string || undefined,
         file: fd.get("file") as File | null,
-        startsAt: fd.get("startsAt") as string | undefined,
-        endsAt: fd.get("endsAt") as string | undefined,
+        startsAt: fd.get("startsAt") as string || undefined,
+        endsAt: fd.get("endsAt") as string || undefined,
       });
     } catch (e) {
       return serviceError(e);
@@ -106,16 +106,16 @@ export const heroRouter = new Elysia({ prefix: "/api" })
       if (ct.includes("multipart/form-data")) {
         const fd = await request.formData();
         return await svc.updatePromoSlide(params.id, {
-          title: fd.get("title") as string | undefined,
-          subtitle: fd.get("subtitle") as string | null,
-          ctaText: fd.get("ctaText") as string | null,
-          ctaUrl: fd.get("ctaUrl") as string | null,
+          title: fd.get("title") as string || undefined,
+          subtitle: fd.get("subtitle") as string || null,
+          ctaText: fd.get("ctaText") as string || null,
+          ctaUrl: fd.get("ctaUrl") as string || null,
           file: fd.get("file") as File | null,
-          imagePosition: fd.get("imagePosition") as string | undefined,
+          imagePosition: fd.get("imagePosition") as string || undefined,
           isPinned: fd.get("isPinned") === "true" ? true : fd.get("isPinned") === "false" ? false : undefined,
           sortOrder: fd.get("sortOrder") ? parseInt(fd.get("sortOrder") as string) : undefined,
-          startsAt: fd.get("startsAt") as string | null,
-          endsAt: fd.get("endsAt") as string | null,
+          startsAt: fd.get("startsAt") as string || null,
+          endsAt: fd.get("endsAt") as string || null,
         });
       }
       const json = await request.json() as Record<string, unknown>;
