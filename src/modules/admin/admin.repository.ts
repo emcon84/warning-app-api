@@ -77,3 +77,5 @@ export async function updateStore(id: string, data: { isPremium?: boolean; isFou
 export async function deleteStore(id: string) {
   return prisma.comercio.delete({ where: { id } });
 }
+
+// ── Hero Slide Backgrounds (removed — model dropped) ───────────────────────

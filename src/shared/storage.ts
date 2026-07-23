@@ -1,4 +1,4 @@
-import { S3Client, PutObjectCommand } from "@aws-sdk/client-s3";
+import { S3Client, PutObjectCommand, DeleteObjectCommand } from "@aws-sdk/client-s3";
 import sharp from "sharp";
 
 let _client: S3Client | null = null;
@@ -64,4 +64,20 @@ export async function uploadFileToR2(
   const webp     = await toWebP(original);
   const filename = `${prefix}_${crypto.randomUUID()}.webp`;
   return uploadToR2(webp, filename, "image/webp");
+}
+
+export async function deleteFromR2(url: string): Promise<void> {
+  if (!url) return;
+  const filename = url.split("/").pop();
+  if (!filename) return;
+  try {
+    await getClient().send(
+      new DeleteObjectCommand({
+        Bucket: BUCKET(),
+        Key:    filename,
+      })
+    );
+  } catch {
+    // File may not exist — that's OK
+  }
 }

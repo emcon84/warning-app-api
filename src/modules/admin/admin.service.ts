@@ -63,3 +63,5 @@ export async function removeStore(id: string) {
   await repo.deleteStore(id);
   return { ok: true };
 }
+
+// ── Hero Slide Backgrounds (removed — model dropped) ───────────────────────

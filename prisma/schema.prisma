@@ -3,8 +3,9 @@ generator client {
 }
 
 datasource db {
-  provider = "postgresql"
-  url      = env("DATABASE_URL")
+  provider          = "postgresql"
+  url               = env("DATABASE_URL")
+  shadowDatabaseUrl = env("SHADOW_DATABASE_URL")
 }
 
 model Report {
@@ -337,6 +338,30 @@ model ComercioReview {
   @@index([comercioId])
   @@index([createdAt])
   @@index([clerkUserId])
+}
+
+model HeroSlide {
+  id        String   @id @default(cuid())
+  slideType String   // "professional" | "comercio" | "promo"
+  refId     String?  // professional or comercio ID (null for promos)
+  title     String
+  subtitle  String?
+  ctaText   String?
+  ctaUrl    String?
+  imageUrl  String?  // admin-uploaded image for promo slides
+  imagePosition String @default("center") // vertical alignment for bg image: center | top | bottom
+  isPinned  Boolean  @default(false)
+  sortOrder Int      @default(0)
+  startsAt  DateTime?
+  endsAt    DateTime?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([slideType])
+  @@index([isPinned])
+  @@index([sortOrder])
+  @@index([startsAt])
+  @@index([endsAt])
 }
 
 model ProductAiUsageDay {
@@ -676,3 +701,5 @@ model EventoSubscripcion {
   @@index([eventoId])
   @@index([clerkUserId])
 }
+
+
