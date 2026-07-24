@@ -274,7 +274,7 @@ let periodicTimer: ReturnType<typeof setInterval> | null = null;
 
 const PORTAL_KEYS = Object.keys(PORTALS);
 
-export function startPeriodicRefresh(intervalMs: number = 60 * 60 * 1000): void {
+export function startPeriodicRefresh(intervalMs: number = 4 * 60 * 60 * 1000): void {
   if (periodicTimer) return;
 
   console.log(`📰 News: periodic refresh cada ${intervalMs / 1000}s para [${PORTAL_KEYS.join(", ")}]`);
