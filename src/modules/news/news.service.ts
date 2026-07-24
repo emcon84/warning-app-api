@@ -25,10 +25,22 @@ interface PortalConfig {
   imageAttr: string;
   urlPrefix: string;
   imageFromStyle?: boolean;
-  useProxy?: boolean;
+  useFlareSolverr?: boolean;
 }
 
 const PORTALS: Record<string, PortalConfig> = {
+  reconquistahoy: {
+    name: "Reconquista HOY",
+    feedUrl: "https://www.reconquistahoy.com",
+    articleSelector: "article.floatFix",
+    titleSelector: "h2[itemprop='headline']",
+    urlSelector: "a",
+    imageSelector: "img.pic",
+    dateSelector: "",
+    imageAttr: "src",
+    urlPrefix: "",
+    useFlareSolverr: true,
+  },
   reconquistaar: {
     name: "Reconquista.com.ar",
     feedUrl: "https://www.reconquista.com.ar",
@@ -149,19 +161,43 @@ function parseRssFeed(config: PortalConfig, xml: string): NewsArticle[] {
   return articles;
 }
 
+const FLARESOLVERR_URL = process.env.FLARESOLVERR_URL || "http://localhost:8191/v1";
+
+async function fetchViaFlareSolverr(url: string): Promise<string> {
+  const res = await fetch(FLARESOLVERR_URL, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      cmd: "request.get",
+      url,
+      maxTimeout: 30000,
+    }),
+  });
+  if (!res.ok) throw { status: 502, message: `FlareSolverr error: ${res.status}` };
+  const data = await res.json() as { status: string; solution?: { response: string } };
+  if (data.status !== "ok" || !data.solution) {
+    throw { status: 502, message: `FlareSolverr: no solution for ${url}` };
+  }
+  return data.solution.response;
+}
+
 export async function scrapePortal(portalKey: string): Promise<NewsArticle[]> {
   const config = PORTALS[portalKey];
   if (!config) throw { status: 404, message: `Portal "${portalKey}" no encontrado` };
 
-  const res = await fetch(config.feedUrl, {
-    headers: {
-      "User-Agent": "Mozilla/5.0 (compatible; ReportesReconquistaBot/1.0; +https://reportesreconquista.com)",
-    },
-  });
+  let body: string;
 
-  if (!res.ok) throw { status: 502, message: `Error al fetching ${config.name}: ${res.status}` };
-
-  const body = await res.text();
+  if (config.useFlareSolverr) {
+    body = await fetchViaFlareSolverr(config.feedUrl);
+  } else {
+    const res = await fetch(config.feedUrl, {
+      headers: {
+        "User-Agent": "Mozilla/5.0 (compatible; ReportesReconquistaBot/1.0; +https://reportesreconquista.com)",
+      },
+    });
+    if (!res.ok) throw { status: 502, message: `Error fetching ${config.name}: ${res.status}` };
+    body = await res.text();
+  }
 
   // RSS feed parsing
   if (config.feedType === "rss") {
