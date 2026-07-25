@@ -100,12 +100,12 @@ export async function scrapePatioLimpio(month?: number, year?: number): Promise<
         let recoleccionDesde = "";
 
         // Find "Sacar residuos:" and get the next strong tag's content
-        const sacarMatch = pHtml.match(/Sacar residuos:?\s*(?:&nbsp;)?\s*<strong>([^<]+)<\/strong>/i);
-        if (sacarMatch) sacarFechas = sacarMatch[1].trim().replace(/<br\s*\/?>/gi, "").trim();
+        const sacarMatch = pHtml.match(/Sacar residuos:?\s*(?:&nbsp;)?\s*<strong>(.+?)<\/strong>/is);
+        if (sacarMatch) sacarFechas = sacarMatch[1].replace(/<br\s*\/?>/gi, "").trim();
 
         // Find "Recolección desde:" and get the next strong tag's content
-        const recoleccionMatch = pHtml.match(/Recolecci[oó]n desde:?\s*(?:&nbsp;)?\s*<strong>([^<]+)<\/strong>/i);
-        if (recoleccionMatch) recoleccionDesde = recoleccionMatch[1].trim().replace(/<br\s*\/?>/gi, "").trim();
+        const recoleccionMatch = pHtml.match(/Recolecci[oó]n desde:?\s*(?:&nbsp;)?\s*<strong>(.+?)<\/strong>/is);
+        if (recoleccionMatch) recoleccionDesde = recoleccionMatch[1].replace(/<br\s*\/?>/gi, "").trim();
 
         zones.push({
           zone: firstStrong.replace("Zona ", ""),
