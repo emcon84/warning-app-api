@@ -31,34 +31,28 @@ const MESES = [
 
 function buildUrl(month?: number, year?: number): string {
   const now = new Date();
-  const m = month ?? now.getMonth(); // 0-indexed
+  const m = month ?? now.getMonth();
   const y = year ?? now.getFullYear();
   return `https://reconquista.gob.ar/cronograma-patio-limpio-para-el-mes-de-${MESES[m]}-${y}/`;
 }
 
-// ── Scraper ──────────────────────────────────────────────────────────────────
+// ── FlareSolverr ─────────────────────────────────────────────────────────────
 
-function parseZone(text: string): PatioLimpioZone | null {
-  // Match: **Zona X** (Barrio 1, Barrio 2, ...)
-  const zoneMatch = text.match(/\*\*Zona\s+([A-E])\*\*\s*\(([^)]+)\)/i);
-  if (!zoneMatch) return null;
+const FLARESOLVERR_URL = process.env.FLARESOLVERR_URL || "http://localhost:8191/v1";
 
-  const zone = zoneMatch[1].toUpperCase();
-  const barrios = zoneMatch[2]
-    .split(",")
-    .map((b) => b.replace(/^\d+\s*(viviendas?)?\s*/i, "").trim())
-    .filter(Boolean);
-
-  // Match: Sacar residuos: **fecha1 y fecha2**
-  const sacarMatch = text.match(/Sacar residuos?:?\s*\*?\*?([^*]+?)\*?\*?/i);
-  const sacarFechas = sacarMatch ? sacarMatch[1].trim() : "";
-
-  // Match: Recolección desde: **fecha**
-  const recoleccionMatch = text.match(/Recolección desde:?\s*\*?\*?([^*]+?)\*?\*?/i);
-  const recoleccionDesde = recoleccionMatch ? recoleccionMatch[1].trim() : "";
-
-  return { zone, barrios, sacarFechas, recoleccionDesde };
+async function fetchViaFlareSolverr(url: string): Promise<string> {
+  const res = await fetch(FLARESOLVERR_URL, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ cmd: "request.get", url, maxTimeout: 30000 }),
+  });
+  if (!res.ok) throw { status: 502, message: `FlareSolverr error: ${res.status}` };
+  const data = await res.json() as { status: string; solution?: { response: string } };
+  if (data.status !== "ok" || !data.solution) throw { status: 502, message: "FlareSolverr no pudo obtener la pagina" };
+  return data.solution.response;
 }
+
+// ── Scraper ──────────────────────────────────────────────────────────────────
 
 export async function scrapePatioLimpio(month?: number, year?: number): Promise<PatioLimpioData> {
   const url = buildUrl(month, year);
@@ -66,46 +60,75 @@ export async function scrapePatioLimpio(month?: number, year?: number): Promise<
   const mes = MESES[month ?? now.getMonth()];
   const y = year ?? now.getFullYear();
 
-  const res = await fetch(url, {
-    headers: {
-      "User-Agent": "Mozilla/5.0 (compatible; ReportesReconquistaBot/1.0; +https://reportesreconquista.com)",
-    },
-  });
-
-  if (!res.ok) {
-    throw { status: 502, message: `No se pudo obtener el cronograma de ${mes} ${y}` };
-  }
-
-  const html = await res.text();
+  const html = await fetchViaFlareSolverr(url);
   const $ = cheerio.load(html);
 
-  // Find the main article content
-  const content = $(".entry-content, article .content, .post-content").first();
-  const paragraphs = content.find("p").toArray();
+  // Get article content
+  const article = $("article, .entry-content, .post-content").first();
+  if (!article.length) throw { status: 404, message: "No se encontro el contenido del cronograma" };
+
+  // Extract instructions (paragraphs before first zone)
+  let instrucciones = "";
+  const allPs = article.find("p").toArray();
 
   const zones: PatioLimpioZone[] = [];
-  let instrucciones = "";
 
-  for (const p of paragraphs) {
-    const text = $(p).text().trim();
+  for (const p of allPs) {
+    const $p = $(p);
+    const text = $p.text().trim();
 
-    // Skip empty paragraphs
     if (!text || text.length < 10) continue;
 
-    // Check if it's a zone paragraph
-    if (text.match(/\*\*Zona\s+[A-E]\*\*/i)) {
-      const zone = parseZone(text);
-      if (zone) zones.push(zone);
-      continue;
+    // Check if this paragraph contains a zone header
+    const strongTags = $p.find("strong").toArray();
+    if (strongTags.length > 0) {
+      const firstStrong = $(strongTags[0]).text().trim().replace(/\u00A0/g, "");
+
+      if (firstStrong.match(/^Zona\s+[A-E]$/i)) {
+        // Parse zone info from this paragraph
+        const zoneText = text;
+
+        // Extract barrios from parentheses
+        const barriosMatch = zoneText.match(/\(([^)]+)\)/);
+        const barrios = barriosMatch
+          ? barriosMatch[1].split(",").map((b) => b.trim()).filter(Boolean)
+          : [];
+
+        // Extract sacar residuos date from strong tags
+        let sacarFechas = "";
+        let recoleccionDesde = "";
+
+        for (let i = 1; i < strongTags.length; i++) {
+          const val = $(strongTags[i]).text().trim().replace(/\u00A0/g, "");
+          // Check context: is this a date or a collection day?
+          const prevText = text.substring(0, text.indexOf($(strongTags[i]).text())).toLowerCase();
+          if (prevText.includes("sacar") || prevText.includes("residuos")) {
+            sacarFechas = val;
+          } else if (prevText.includes("recolecci") || prevText.includes("desde")) {
+            recoleccionDesde = val;
+          } else if (!sacarFechas && val.match(/\d/)) {
+            sacarFechas = val;
+          } else if (!recoleccionDesde && val.match(/lunes|martes|miercoles|jueves|viernes/i)) {
+            recoleccionDesde = val;
+          }
+        }
+
+        zones.push({
+          zone: firstStrong.replace("Zona ", ""),
+          barrios,
+          sacarFechas,
+          recoleccionDesde,
+        });
+        continue;
+      }
     }
 
-    // Collect instructions (before the zone list)
+    // Collect instructions (text before zones)
     if (zones.length === 0 && text.length > 30 && !text.includes("http")) {
       instrucciones += (instrucciones ? " " : "") + text;
     }
   }
 
-  // If we found zones, build the data
   if (zones.length === 0) {
     throw { status: 404, message: `No se encontraron zonas en el cronograma de ${mes} ${y}` };
   }
@@ -114,14 +137,12 @@ export async function scrapePatioLimpio(month?: number, year?: number): Promise<
     mes,
     year: y,
     sourceUrl: url,
-    instrucciones: instrucciones.slice(0, 500) || `Cronograma de recolección de ramas, pastos y cacharros para ${mes} de ${y}.`,
+    instrucciones: instrucciones.slice(0, 600) || `Cronograma de recolección de ramas, pastos y cacharros para ${mes} de ${y}.`,
     zones,
     fetchedAt: new Date().toISOString(),
   };
 
-  // Cache the result
   cache = data;
-
   return data;
 }
 
