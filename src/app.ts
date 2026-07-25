@@ -15,6 +15,7 @@ import { heroRouter } from "./modules/hero/hero.router";
 import { eventsRouter } from "./modules/events/events.router";
 import { newsRouter } from "./modules/news/news.router";
 import { searchRouter } from "./modules/search/search.router";
+import { patioLimpioRouter } from "./modules/patio-limpio/patio-limpio.router";
 
 export const app = new Elysia()
 
@@ -105,6 +106,7 @@ export const app = new Elysia()
   .use(eventsRouter)
   .use(newsRouter)
   .use(searchRouter)
+  .use(patioLimpioRouter)
 
   // ── Global error handler ──────────────────────────────────────────────────
   .onError(({ code, error, set }) => {
