@@ -152,6 +152,7 @@ model PageView {
   sessionId String
   section   String
   ip        String?
+  userAgent String?
   createdAt DateTime? @default(now()) @db.Timestamp(6)
 
   @@index([createdAt])

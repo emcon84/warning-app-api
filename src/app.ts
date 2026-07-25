@@ -38,11 +38,12 @@ export const app = new Elysia()
     const ip = request.headers.get("x-forwarded-for")?.split(",")[0]?.trim()
             || request.headers.get("x-real-ip")
             || "unknown";
+    const ua = request.headers.get("user-agent") || "";
     const section = new URL(request.url).searchParams.get("section") || "home";
     const sessionId = new URL(request.url).searchParams.get("s") || ip;
 
     try {
-      await prisma.pageView.create({ data: { ip, section, sessionId } });
+      await prisma.pageView.create({ data: { ip, section, sessionId, userAgent: ua.slice(0, 500) } });
     } catch {}
 
     // Return transparent 1x1 GIF
@@ -76,29 +77,40 @@ export const app = new Elysia()
       prisma.professional.count(),
       prisma.conversation.count(),
       prisma.comercioReview.count(),
-      prisma.pageView.findMany({ where: { createdAt: { gte: thirtyDaysAgo } }, select: { createdAt: true, ip: true }, orderBy: { createdAt: "asc" } }),
-      prisma.pageView.count({ where: { createdAt: { gte: today } } }),
-      prisma.pageView.count({ where: { createdAt: { gte: weekAgo } } }),
-      prisma.pageView.count({ where: { createdAt: { gte: thirtyDaysAgo } } }),
-      prisma.pageView.count(),
+      prisma.pageView.findMany({ where: { createdAt: { gte: thirtyDaysAgo }, section: "home" }, select: { createdAt: true, ip: true, userAgent: true }, orderBy: { createdAt: "asc" } }),
+      prisma.pageView.count({ where: { createdAt: { gte: today }, section: "home" } }),
+      prisma.pageView.count({ where: { createdAt: { gte: weekAgo }, section: "home" } }),
+      prisma.pageView.count({ where: { createdAt: { gte: thirtyDaysAgo }, section: "home" } }),
+      prisma.pageView.count({ where: { section: "home" } }),
     ]);
 
-    // Daily unique IPs
+    // Daily unique IPs + device breakdown (home section only)
     const dailyMap: Record<string, Set<string>> = {};
+    let mobileCount = 0;
+    let desktopCount = 0;
+
     for (const v of dailyVisitsRaw) {
       const key = v.createdAt!.toISOString().slice(0, 10);
       if (!dailyMap[key]) dailyMap[key] = new Set();
       dailyMap[key].add(v.ip ?? "unknown");
+
+      // Detect device type from user-agent
+      const ua = (v.userAgent || "").toLowerCase();
+      if (ua.includes("mobi") || ua.includes("android") && !ua.includes("tablet")) {
+        mobileCount++;
+      } else {
+        desktopCount++;
+      }
     }
     const dailyVisits = Object.entries(dailyMap)
       .sort(([a], [b]) => a.localeCompare(b))
       .map(([date, ips]) => ({ date, visits: ips.size, uniqueVisitors: ips.size }));
 
-    // Unique IPs for today/week/month
+    // Unique IPs for today/week/month (home section only)
     const [todayIPs, weekIPs, monthIPs] = await Promise.all([
-      prisma.pageView.findMany({ where: { createdAt: { gte: today } }, select: { ip: true }, distinct: ["ip"] }),
-      prisma.pageView.findMany({ where: { createdAt: { gte: weekAgo } }, select: { ip: true }, distinct: ["ip"] }),
-      prisma.pageView.findMany({ where: { createdAt: { gte: thirtyDaysAgo } }, select: { ip: true }, distinct: ["ip"] }),
+      prisma.pageView.findMany({ where: { createdAt: { gte: today }, section: "home" }, select: { ip: true }, distinct: ["ip"] }),
+      prisma.pageView.findMany({ where: { createdAt: { gte: weekAgo }, section: "home" }, select: { ip: true }, distinct: ["ip"] }),
+      prisma.pageView.findMany({ where: { createdAt: { gte: thirtyDaysAgo }, section: "home" }, select: { ip: true }, distinct: ["ip"] }),
     ]);
 
     return {
@@ -107,6 +119,11 @@ export const app = new Elysia()
         week: weekIPs.length,
         month: monthIPs.length,
         total: totalVisits,
+      },
+      devices: {
+        mobile: Math.round((mobileCount / (dailyVisitsRaw.length || 1)) * 100),
+        desktop: Math.round((desktopCount / (dailyVisitsRaw.length || 1)) * 100),
+        totalViews: dailyVisitsRaw.length,
       },
       topSections: [],
       dailyVisits,
