@@ -66,6 +66,7 @@ export const app = new Elysia()
       totalConversations,
       totalReviews,
       dailyVisitsRaw,
+      dailyReportsRaw,
       todayVisits,
       weekVisits,
       monthVisits,
@@ -78,6 +79,7 @@ export const app = new Elysia()
       prisma.conversation.count(),
       prisma.comercioReview.count(),
       prisma.pageView.findMany({ where: { createdAt: { gte: thirtyDaysAgo }, section: "home" }, select: { createdAt: true, ip: true, userAgent: true }, orderBy: { createdAt: "asc" } }),
+      prisma.report.findMany({ where: { createdAt: { gte: thirtyDaysAgo } }, select: { createdAt: true }, orderBy: { createdAt: "asc" } }),
       prisma.pageView.count({ where: { createdAt: { gte: today }, section: "home" } }),
       prisma.pageView.count({ where: { createdAt: { gte: weekAgo }, section: "home" } }),
       prisma.pageView.count({ where: { createdAt: { gte: thirtyDaysAgo }, section: "home" } }),
@@ -125,6 +127,16 @@ export const app = new Elysia()
         desktop: Math.round((desktopCount / (dailyVisitsRaw.length || 1)) * 100),
         totalViews: dailyVisitsRaw.length,
       },
+      dailyVisits,
+      dailyReports: Object.entries(
+        dailyReportsRaw.reduce((acc: Record<string, number>, r) => {
+          const key = r.createdAt.toISOString().slice(0, 10);
+          acc[key] = (acc[key] ?? 0) + 1;
+          return acc;
+        }, {})
+      )
+        .sort(([a], [b]) => a.localeCompare(b))
+        .map(([date, count]) => ({ date, reports: count })),
       topSections: [],
       dailyVisits,
       totalReports,
