@@ -1,6 +1,8 @@
 import { Elysia } from "elysia";
 import * as svc from "./patio-limpio.service";
 
+svc.startPeriodicRefresh();
+
 export const patioLimpioRouter = new Elysia({ prefix: "/api" })
 
   .get("/patio-limpio", async ({ set }) => {

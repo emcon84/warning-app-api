@@ -143,3 +143,24 @@ export async function scrapePatioLimpio(month?: number, year?: number): Promise<
 export function getCached(): PatioLimpioData | null {
   return cache;
 }
+
+// ── Periodic Refresh ─────────────────────────────────────────────────────────
+
+let refreshTimer: ReturnType<typeof setInterval> | null = null;
+
+export function startPeriodicRefresh(intervalMs: number = 7 * 24 * 60 * 60 * 1000): void {
+  if (refreshTimer) return;
+
+  const refresh = async () => {
+    try {
+      const data = await scrapePatioLimpio();
+      console.log(`🧹 Patio Limpio: ${data.zones.length} zonas cargadas para ${data.mes} ${data.year}`);
+    } catch (e: any) {
+      console.error(`🧹 Patio Limpio: error al refrescar — ${e?.message || e}`);
+    }
+  };
+
+  refresh(); // initial fetch
+  refreshTimer = setInterval(refresh, intervalMs);
+  console.log(`🧹 Patio Limpio: refresh automático cada ${intervalMs / 86400000} días`);
+}
