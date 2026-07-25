@@ -151,10 +151,12 @@ model PageView {
   id        String    @id @default(cuid())
   sessionId String
   section   String
+  ip        String?
   createdAt DateTime? @default(now()) @db.Timestamp(6)
 
   @@index([createdAt])
   @@index([sessionId])
+  @@index([ip])
 }
 
 model Professional {

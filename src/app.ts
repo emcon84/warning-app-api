@@ -34,8 +34,29 @@ export const app = new Elysia()
   .get("/api/health", () => ({ status: "ok" }))
 
   // ── Public platform analytics ─────────────────────────────────────────────
+  .get("/api/pixel", async ({ request, set }) => {
+    const ip = request.headers.get("x-forwarded-for")?.split(",")[0]?.trim()
+            || request.headers.get("x-real-ip")
+            || "unknown";
+    const section = new URL(request.url).searchParams.get("section") || "home";
+    const sessionId = new URL(request.url).searchParams.get("s") || ip;
+
+    try {
+      await prisma.pageView.create({ data: { ip, section, sessionId } });
+    } catch {}
+
+    // Return transparent 1x1 GIF
+    set.headers["Content-Type"] = "image/gif";
+    set.headers["Cache-Control"] = "no-cache, no-store";
+    return Buffer.from("R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7", "base64");
+  })
+
   .get("/api/analytics", async () => {
     const thirtyDaysAgo = new Date(Date.now() - 30 * 86400_000);
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const weekAgo = new Date(Date.now() - 7 * 86400_000);
+
     const [
       totalReports,
       reportsByCategory,
@@ -43,43 +64,50 @@ export const app = new Elysia()
       totalProfessionals,
       totalConversations,
       totalReviews,
-      dailyReports,
+      dailyVisitsRaw,
+      todayVisits,
+      weekVisits,
+      monthVisits,
+      totalVisits,
     ] = await Promise.all([
       prisma.report.count(),
-      prisma.report.groupBy({
-        by: ["category"],
-        _count: { id: true },
-        orderBy: { _count: { id: "desc" } },
-        take: 6,
-      }),
-      prisma.report.groupBy({
-        by: ["barrio"],
-        _count: { id: true },
-        orderBy: { _count: { id: "desc" } },
-        take: 5,
-      }),
+      prisma.report.groupBy({ by: ["category"], _count: { id: true }, orderBy: { _count: { id: "desc" } }, take: 6 }),
+      prisma.report.groupBy({ by: ["barrio"], _count: { id: true }, orderBy: { _count: { id: "desc" } }, take: 5 }),
       prisma.professional.count(),
       prisma.conversation.count(),
       prisma.comercioReview.count(),
-      prisma.report.findMany({
-        where: { createdAt: { gte: thirtyDaysAgo } },
-        select: { createdAt: true },
-        orderBy: { createdAt: "asc" },
-      }),
+      prisma.pageView.findMany({ where: { createdAt: { gte: thirtyDaysAgo } }, select: { createdAt: true, ip: true }, orderBy: { createdAt: "asc" } }),
+      prisma.pageView.count({ where: { createdAt: { gte: today } } }),
+      prisma.pageView.count({ where: { createdAt: { gte: weekAgo } } }),
+      prisma.pageView.count({ where: { createdAt: { gte: thirtyDaysAgo } } }),
+      prisma.pageView.count(),
     ]);
 
-    // Agrupa reportes diarios de los últimos 30 días
-    const dailyMap: Record<string, number> = {};
-    for (const r of dailyReports) {
-      const key = r.createdAt.toISOString().slice(0, 10);
-      dailyMap[key] = (dailyMap[key] ?? 0) + 1;
+    // Daily unique IPs
+    const dailyMap: Record<string, Set<string>> = {};
+    for (const v of dailyVisitsRaw) {
+      const key = v.createdAt!.toISOString().slice(0, 10);
+      if (!dailyMap[key]) dailyMap[key] = new Set();
+      dailyMap[key].add(v.ip ?? "unknown");
     }
     const dailyVisits = Object.entries(dailyMap)
       .sort(([a], [b]) => a.localeCompare(b))
-      .map(([date, visits]) => ({ date, visits, uniqueVisitors: visits }));
+      .map(([date, ips]) => ({ date, visits: ips.size, uniqueVisitors: ips.size }));
+
+    // Unique IPs for today/week/month
+    const [todayIPs, weekIPs, monthIPs] = await Promise.all([
+      prisma.pageView.findMany({ where: { createdAt: { gte: today } }, select: { ip: true }, distinct: ["ip"] }),
+      prisma.pageView.findMany({ where: { createdAt: { gte: weekAgo } }, select: { ip: true }, distinct: ["ip"] }),
+      prisma.pageView.findMany({ where: { createdAt: { gte: thirtyDaysAgo } }, select: { ip: true }, distinct: ["ip"] }),
+    ]);
 
     return {
-      uniqueVisitors: { today: 0, week: 0, month: 0, total: 0 },
+      uniqueVisitors: {
+        today: todayIPs.length,
+        week: weekIPs.length,
+        month: monthIPs.length,
+        total: totalVisits,
+      },
       topSections: [],
       dailyVisits,
       totalReports,
