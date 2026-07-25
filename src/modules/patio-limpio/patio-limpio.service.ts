@@ -94,24 +94,18 @@ export async function scrapePatioLimpio(month?: number, year?: number): Promise<
           ? barriosMatch[1].split(",").map((b) => b.trim()).filter(Boolean)
           : [];
 
-        // Extract sacar residuos date from strong tags
+        // Extract sacar residuos and recoleccion by looking at raw HTML
+        const pHtml = $p.html() || "";
         let sacarFechas = "";
         let recoleccionDesde = "";
 
-        for (let i = 1; i < strongTags.length; i++) {
-          const val = $(strongTags[i]).text().trim().replace(/\u00A0/g, "");
-          // Check context: is this a date or a collection day?
-          const prevText = text.substring(0, text.indexOf($(strongTags[i]).text())).toLowerCase();
-          if (prevText.includes("sacar") || prevText.includes("residuos")) {
-            sacarFechas = val;
-          } else if (prevText.includes("recolecci") || prevText.includes("desde")) {
-            recoleccionDesde = val;
-          } else if (!sacarFechas && val.match(/\d/)) {
-            sacarFechas = val;
-          } else if (!recoleccionDesde && val.match(/lunes|martes|miercoles|jueves|viernes/i)) {
-            recoleccionDesde = val;
-          }
-        }
+        // Find "Sacar residuos:" and get the next strong tag's content
+        const sacarMatch = pHtml.match(/Sacar residuos:?\s*(?:&nbsp;)?\s*<strong>([^<]+)<\/strong>/i);
+        if (sacarMatch) sacarFechas = sacarMatch[1].trim().replace(/<br\s*\/?>/gi, "").trim();
+
+        // Find "Recolección desde:" and get the next strong tag's content
+        const recoleccionMatch = pHtml.match(/Recolecci[oó]n desde:?\s*(?:&nbsp;)?\s*<strong>([^<]+)<\/strong>/i);
+        if (recoleccionMatch) recoleccionDesde = recoleccionMatch[1].trim().replace(/<br\s*\/?>/gi, "").trim();
 
         zones.push({
           zone: firstStrong.replace("Zona ", ""),
