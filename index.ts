@@ -2775,6 +2775,21 @@ La descripción debe:
           },
         );
 
+        if (!groqRes.ok) {
+          const errBody = await groqRes.text().catch(() => "");
+          console.error(`Groq API error ${groqRes.status}: ${errBody}`);
+          return new Response(
+            JSON.stringify({
+              error:
+                "El servicio de IA no está disponible en este momento. Intentá de nuevo más tarde.",
+            }),
+            {
+              status: 502,
+              headers: { ...corsHeaders, "Content-Type": "application/json" },
+            },
+          );
+        }
+
         const groqData = (await groqRes.json()) as {
           choices: { message: { content: string } }[];
         };
@@ -2837,11 +2852,16 @@ La descripción debe:
               }),
             },
           );
-          const groqData = (await groqRes.json()) as {
-            choices: { message: { content: string } }[];
-          };
-          lineaPersonalizada =
-            groqData.choices?.[0]?.message?.content?.trim() ?? "";
+          if (!groqRes.ok) {
+            const errBody = await groqRes.text().catch(() => "");
+            console.error(`Groq API error ${groqRes.status}: ${errBody}`);
+          } else {
+            const groqData = (await groqRes.json()) as {
+              choices: { message: { content: string } }[];
+            };
+            lineaPersonalizada =
+              groqData.choices?.[0]?.message?.content?.trim() ?? "";
+          }
         }
 
         const saludo = contacto ? `Hola ${contacto}!` : "Hola!";
