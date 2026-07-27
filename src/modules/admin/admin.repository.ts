@@ -70,7 +70,7 @@ export async function findAllStores() {
   });
 }
 
-export async function updateStore(id: string, data: { isPremium?: boolean; isFounder?: boolean }) {
+export async function updateStore(id: string, data: Record<string, unknown>) {
   return prisma.comercio.update({ where: { id }, data });
 }
 

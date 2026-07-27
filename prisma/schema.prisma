@@ -307,6 +307,7 @@ model Comercio {
   activo          Boolean             @default(true)
   isPremium       Boolean             @default(false)
   isFounder       Boolean             @default(false)
+  plan            String              @default("free")
   recommendations Int                 @default(0)
   ratingAvg       Float               @default(0)
   ratingCount     Int                 @default(0)

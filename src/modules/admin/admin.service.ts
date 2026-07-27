@@ -48,9 +48,16 @@ export async function listStores() {
 }
 
 export async function patchStore(id: string, body: Record<string, unknown>) {
-  const data: { isPremium?: boolean; isFounder?: boolean } = {};
+  const data: Record<string, unknown> = {};
   if (typeof body.isPremium === "boolean") data.isPremium = body.isPremium;
   if (typeof body.isFounder === "boolean") data.isFounder = body.isFounder;
+  if (typeof body.plan === "string") {
+    data.plan = body.plan;
+    // Sync boolean flags with plan
+    if (body.plan === "free") { data.isPremium = false; data.isFounder = false; }
+    else if (body.plan === "premium") { data.isPremium = true; data.isFounder = false; }
+    else if (body.plan === "master") { data.isPremium = true; data.isFounder = true; }
+  }
   return repo.updateStore(id, data);
 }
 
