@@ -4,8 +4,11 @@ import { sendPushToAllSubscribers } from "../../shared/push";
 import * as repo from "./reports.repository";
 
 const VALID_CATEGORIES = [
-  "Alumbrado", "Baches", "Basura", "Inundación", "Ruidos molestos",
-  "Seguridad", "Semáforos", "Tránsito", "Vandalismo", "Otro",
+  "alumbrado", "basura", "baches", "pastizales", "robo",
+  "personas_sospechosas", "fugas_agua", "drenaje", "banquetas", "semaforos",
+  "limpieza", "graffiti", "escombros", "arboles", "vandalismo",
+  "vehiculos_abandonados", "iluminacion", "animales_callejeros", "plagas",
+  "senalizacion", "estacionamiento", "transporte", "voz",
 ] as const;
 
 type ReportCategory = (typeof VALID_CATEGORIES)[number];
