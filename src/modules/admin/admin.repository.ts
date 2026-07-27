@@ -11,7 +11,7 @@ const ADMIN_PROFESSIONAL_SELECT = {
 
 const ADMIN_STORE_SELECT = {
   id: true, nombre: true, rubro: true, slug: true, barrio: true,
-  foto: true, logo: true, activo: true, isPremium: true, createdAt: true,
+  foto: true, logo: true, activo: true, isPremium: true, isFounder: true, plan: true, createdAt: true,
 } satisfies Prisma.ComercioSelect;
 
 // ── Professionals ─────────────────────────────────────────────────────────────
