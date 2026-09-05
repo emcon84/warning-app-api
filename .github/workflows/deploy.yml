@@ -23,7 +23,8 @@ jobs:
           username: ${{ secrets.VPS_USER }}
           key: ${{ secrets.SSH_PRIVATE_KEY }}
           source: "deploy.sh"
-          target: "/tmp"
+          target: "/tmp/deploy-api"
+          rm: true
 
       - name: Run deploy
         uses: appleboy/ssh-action@v1.2.0
@@ -33,4 +34,4 @@ jobs:
           key: ${{ secrets.SSH_PRIVATE_KEY }}
           script_stop: true
           script: |
-            bash /tmp/deploy.sh
+            bash /tmp/deploy-api/deploy.sh
