@@ -1,5 +1,5 @@
 import { Elysia, t } from "elysia";
-import { authPlugin, requireAuth } from "../../plugins/auth";
+import { authPlugin } from "../../plugins/auth";
 import { standardRateLimit, strictRateLimit } from "../../plugins/rateLimit";
 import * as svc from "./stores.service";
 import * as repo from "./stores.repository";
@@ -116,111 +116,138 @@ export const storesRouter = new Elysia({ prefix: "/api" })
     catch (e) { return serviceError(e); }
   })
 
-  // ── Rutas autenticadas (me) ─────────────────────────────────────────────────
+  // ── Auth por PIN (público) ──────────────────────────────────────────────────
 
-  .use(requireAuth)
+  .post("/comercios/auth", async ({ body }) => {
+    try {
+      const b = body as Record<string, unknown>;
+      return await svc.authWithPin(b.whatsapp as string, b.pin as string);
+    } catch (e) { return serviceError(e); }
+  })
+
+  // ── Rutas autenticadas (me) ─────────────────────────────────────────────────
 
   .post("/comercios", async ({ clerkUserId, request }) => {
     try {
       const fd = await request.formData();
-      const result = await svc.createStore(clerkUserId!, fd);
+      const result = await svc.createStore(clerkUserId, fd);
       return new Response(JSON.stringify(result), { status: 201 });
     } catch (e) { return serviceError(e); }
   })
 
-  .get("/comercios/me", async ({ clerkUserId }) => {
-    const c = await svc.getMyStore(clerkUserId!);
-    if (!c) return httpError(404, "No tenés un comercio registrado");
-    return c;
-  })
-
-  .put("/comercios/me", async ({ clerkUserId, request }) => {
+  .get("/comercios/me", async ({ clerkUserId, headers }) => {
     try {
-      const fd = await request.formData();
-      return await svc.updateMyStore(clerkUserId!, fd);
+      const storeCode = headers["x-store-code"];
+      return await svc.getMyStore(clerkUserId, storeCode);
     } catch (e) { return serviceError(e); }
   })
 
-  .delete("/comercios/me/fotos", async ({ clerkUserId, body }) => {
+  .put("/comercios/me", async ({ clerkUserId, headers, request }) => {
+    try {
+      const storeCode = headers["x-store-code"];
+      const fd = await request.formData();
+      return await svc.updateMyStore(clerkUserId, storeCode, fd);
+    } catch (e) { return serviceError(e); }
+  })
+
+  .delete("/comercios/me/fotos", async ({ clerkUserId, headers, body }) => {
     const url = (body as any)?.url;
     if (!url) return httpError(400, "URL requerida");
-    try { return await svc.deleteGalleryPhoto(clerkUserId!, url); }
-    catch (e) { return serviceError(e); }
+    try {
+      const storeCode = headers["x-store-code"];
+      return await svc.deleteGalleryPhoto(clerkUserId, storeCode, url);
+    } catch (e) { return serviceError(e); }
   })
 
-  .get("/comercios/me/analytics", async ({ clerkUserId }) => {
-    try { return await svc.getAnalytics(clerkUserId!); }
-    catch (e) { console.error("[analytics]", e); return serviceError(e); }
+  .get("/comercios/me/analytics", async ({ clerkUserId, headers }) => {
+    try {
+      const storeCode = headers["x-store-code"];
+      return await svc.getAnalytics(clerkUserId, storeCode);
+    } catch (e) { console.error("[analytics]", e); return serviceError(e); }
   })
 
-  .get("/comercios/me/plan", async ({ clerkUserId }) => {
-    try { return await svc.getPlan(clerkUserId!); }
-    catch (e) { return serviceError(e); }
+  .get("/comercios/me/plan", async ({ clerkUserId, headers }) => {
+    try {
+      const storeCode = headers["x-store-code"];
+      return await svc.getPlan(clerkUserId, storeCode);
+    } catch (e) { return serviceError(e); }
   })
 
   // ── Offers (me) ─────────────────────────────────────────────────────────────
 
-  .post("/comercios/me/offers", async ({ clerkUserId, request }) => {
+  .post("/comercios/me/offers", async ({ clerkUserId, headers, request }) => {
     try {
+      const storeCode = headers["x-store-code"];
       const fd = await request.formData();
-      const result = await svc.createOffer(clerkUserId!, fd);
+      const result = await svc.createOffer(clerkUserId, storeCode, fd);
       return new Response(JSON.stringify(result), { status: 201 });
     } catch (e) { return serviceError(e); }
   })
 
-  .patch("/comercios/me/offers/:offerId", async ({ clerkUserId, params, request }) => {
+  .patch("/comercios/me/offers/:offerId", async ({ clerkUserId, headers, params, request }) => {
     try {
+      const storeCode = headers["x-store-code"];
       const ct = request.headers.get("content-type") ?? "";
       const isJson = ct.includes("application/json");
       const body = isJson ? await request.json() : await request.formData();
-      return await svc.updateOffer(clerkUserId!, params.offerId, body as any, isJson);
+      return await svc.updateOffer(clerkUserId, storeCode, params.offerId, body as any, isJson);
     } catch (e) { return serviceError(e); }
   })
 
-  .delete("/comercios/me/offers/:offerId", async ({ clerkUserId, params }) => {
-    try { return await svc.deleteOffer(clerkUserId!, params.offerId); }
-    catch (e) { return serviceError(e); }
+  .delete("/comercios/me/offers/:offerId", async ({ clerkUserId, headers, params }) => {
+    try {
+      const storeCode = headers["x-store-code"];
+      return await svc.deleteOffer(clerkUserId, storeCode, params.offerId);
+    } catch (e) { return serviceError(e); }
   })
 
   // ── Productos (me) ──────────────────────────────────────────────────────────
 
-  .post("/comercios/me/productos", async ({ clerkUserId, request }) => {
+  .post("/comercios/me/productos", async ({ clerkUserId, headers, request }) => {
     try {
+      const storeCode = headers["x-store-code"];
       const fd = await request.formData();
-      const result = await svc.createProduct(clerkUserId!, fd);
+      const result = await svc.createProduct(clerkUserId, storeCode, fd);
       return new Response(JSON.stringify(result), { status: 201 });
     } catch (e) { return serviceError(e); }
   })
 
-  .put("/comercios/me/productos/:productoId", async ({ clerkUserId, params, request }) => {
+  .put("/comercios/me/productos/:productoId", async ({ clerkUserId, headers, params, request }) => {
     try {
+      const storeCode = headers["x-store-code"];
       const fd = await request.formData();
-      return await svc.updateProduct(clerkUserId!, params.productoId, fd);
+      return await svc.updateProduct(clerkUserId, storeCode, params.productoId, fd);
     } catch (e) { return serviceError(e); }
   })
 
-  .delete("/comercios/me/productos/:productoId", async ({ clerkUserId, params }) => {
-    try { return await svc.deleteProduct(clerkUserId!, params.productoId); }
-    catch (e) { return serviceError(e); }
+  .delete("/comercios/me/productos/:productoId", async ({ clerkUserId, headers, params }) => {
+    try {
+      const storeCode = headers["x-store-code"];
+      return await svc.deleteProduct(clerkUserId, storeCode, params.productoId);
+    } catch (e) { return serviceError(e); }
   })
 
   // ── AI (productos) ──────────────────────────────────────────────────────────
 
-  .post("/comercios/me/recommendations", async ({ clerkUserId }) => {
-    try { return await svc.generateRecommendations(clerkUserId!); }
-    catch (e) { return serviceError(e); }
+  .post("/comercios/me/recommendations", async ({ clerkUserId, headers }) => {
+    try {
+      const storeCode = headers["x-store-code"];
+      return await svc.generateRecommendations(clerkUserId, storeCode);
+    } catch (e) { return serviceError(e); }
   })
 
-  .post("/comercios/me/productos/autocompletar", async ({ clerkUserId }) => {
+  .post("/comercios/me/productos/autocompletar", async ({ clerkUserId, headers }) => {
     try {
-      await svc.checkAndIncrementAiUsage(clerkUserId!, "analysis");
+      const storeCode = headers["x-store-code"];
+      await svc.checkAndIncrementAiUsage(clerkUserId, storeCode, "analysis");
       return httpError(501, "IA en migración — disponible pronto");
     } catch (e) { return serviceError(e); }
   })
 
-  .post("/comercios/me/productos/generar-imagen", async ({ clerkUserId }) => {
+  .post("/comercios/me/productos/generar-imagen", async ({ clerkUserId, headers }) => {
     try {
-      await svc.checkAndIncrementAiUsage(clerkUserId!, "image");
+      const storeCode = headers["x-store-code"];
+      await svc.checkAndIncrementAiUsage(clerkUserId, storeCode, "image");
       return httpError(501, "IA en migración — disponible pronto");
     } catch (e) { return serviceError(e); }
   });

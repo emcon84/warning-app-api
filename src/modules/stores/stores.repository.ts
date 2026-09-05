@@ -78,6 +78,28 @@ export async function findStoreSlugByClerkId(clerkUserId: string) {
   });
 }
 
+export async function findStoreByWhatsapp(waClean: string) {
+  return prisma.comercio.findFirst({
+    where: {
+      OR: [
+        { whatsapp: waClean },
+        { whatsapp: "549" + waClean.slice(-10) },
+      ],
+    },
+    select: { id: true, nombre: true, slug: true, pin: true, whatsapp: true },
+  });
+}
+
+export async function findStoreOwner(clerkUserId: string | null, storeCode: string | undefined) {
+  if (clerkUserId) return prisma.comercio.findUnique({ where: { clerkUserId }, select: { id: true } });
+  if (storeCode)   return prisma.comercio.findUnique({ where: { id: storeCode }, select: { id: true } });
+  return null;
+}
+
+export async function findStoreById(id: string) {
+  return prisma.comercio.findUnique({ where: { id }, select: ME_SELECT });
+}
+
 export async function countStores() {
   return prisma.comercio.count();
 }
@@ -91,6 +113,13 @@ export async function updateStoreByClerkId(
   data: Prisma.ComercioUpdateInput
 ) {
   return prisma.comercio.update({ where: { clerkUserId }, data });
+}
+
+export async function updateStoreById(
+  id: string,
+  data: Prisma.ComercioUpdateInput
+) {
+  return prisma.comercio.update({ where: { id }, data });
 }
 
 export async function incrementRecommendation(id: string) {

@@ -36,10 +36,13 @@ export async function getPostsByStore(slug: string, rawPage: string | undefined)
   return { posts, total, page, pages: Math.ceil(total / PAGE_LIMIT) };
 }
 
-export async function createPost(slug: string, clerkUserId: string, formData: FormData) {
+export async function createPost(slug: string, clerkUserId: string | null, storeCode: string | undefined, formData: FormData) {
   const store = await repo.findStoreForPostCreate(slug);
-  if (!store || store.clerkUserId !== clerkUserId)
-    throw { status: 403, message: "No autorizado" };
+  if (!store) throw { status: 403, message: "No autorizado" };
+  const isOwner =
+    (clerkUserId && store.clerkUserId === clerkUserId) ||
+    (storeCode && store.id === storeCode);
+  if (!isOwner) throw { status: 403, message: "No autorizado" };
 
   const contenido = sanitizeText(formData.get("contenido") as string, 1000);
   if (!contenido) throw { status: 400, message: "El contenido es obligatorio" };
@@ -80,10 +83,13 @@ export async function createPost(slug: string, clerkUserId: string, formData: Fo
   return post;
 }
 
-export async function deletePost(slug: string, postId: string, clerkUserId: string) {
+export async function deletePost(slug: string, postId: string, clerkUserId: string | null, storeCode: string | undefined) {
   const store = await repo.findStoreForPostDelete(slug);
-  if (!store || store.clerkUserId !== clerkUserId)
-    throw { status: 403, message: "No autorizado" };
+  if (!store) throw { status: 403, message: "No autorizado" };
+  const isOwner =
+    (clerkUserId && store.clerkUserId === clerkUserId) ||
+    (storeCode && store.id === storeCode);
+  if (!isOwner) throw { status: 403, message: "No autorizado" };
 
   await repo.softDeletePost(postId, store.id);
   return { ok: true };

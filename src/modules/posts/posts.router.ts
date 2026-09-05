@@ -54,11 +54,12 @@ export const postsRouter = new Elysia({ prefix: "/api" })
     catch (e) { return serviceError(e); }
   })
 
-  .post("/comercios/:slug/posts", async ({ params, clerkUserId, request }) => {
-    if (!clerkUserId) return httpError(401, "No autorizado");
+  .post("/comercios/:slug/posts", async ({ params, clerkUserId, headers, request }) => {
+    const storeCode = headers["x-store-code"];
+    if (!clerkUserId && !storeCode) return httpError(401, "No autorizado");
     try {
       const fd   = await request.formData();
-      const post = await svc.createPost(params.slug, clerkUserId, fd);
+      const post = await svc.createPost(params.slug, clerkUserId, storeCode, fd);
       return new Response(JSON.stringify(post), {
         status: 201,
         headers: { "Content-Type": "application/json" },
@@ -66,8 +67,10 @@ export const postsRouter = new Elysia({ prefix: "/api" })
     } catch (e) { return serviceError(e); }
   })
 
-  .delete("/comercios/:slug/posts/:postId", async ({ params, clerkUserId }) => {
-    if (!clerkUserId) return httpError(401, "No autorizado");
-    try { return await svc.deletePost(params.slug, params.postId, clerkUserId); }
-    catch (e) { return serviceError(e); }
+  .delete("/comercios/:slug/posts/:postId", async ({ params, clerkUserId, headers }) => {
+    const storeCode = headers["x-store-code"];
+    if (!clerkUserId && !storeCode) return httpError(401, "No autorizado");
+    try {
+      return await svc.deletePost(params.slug, params.postId, clerkUserId, storeCode);
+    } catch (e) { return serviceError(e); }
   });

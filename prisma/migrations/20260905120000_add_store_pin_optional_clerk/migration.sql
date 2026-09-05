@@ -1,0 +1,2 @@
+ALTER TABLE "Comercio" ALTER COLUMN "clerkUserId" DROP NOT NULL;
+ALTER TABLE "Comercio" ADD COLUMN "pin" TEXT;

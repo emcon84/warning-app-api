@@ -291,7 +291,8 @@ model PublicReview {
 
 model Comercio {
   id              String              @id @default(cuid())
-  clerkUserId     String              @unique
+  clerkUserId     String?             @unique
+  pin             String?
   nombre          String
   rubro           String
   slug            String              @unique

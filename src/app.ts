@@ -26,7 +26,7 @@ export const app = new Elysia()
         ? process.env.CORS_ORIGIN.split(",").map(o => o.trim())
         : true,
       methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
-      allowedHeaders: ["Content-Type", "Authorization", "X-Professional-Code"],
+      allowedHeaders: ["Content-Type", "Authorization", "X-Professional-Code", "X-Store-Code"],
     })
   )
 

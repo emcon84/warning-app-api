@@ -65,9 +65,20 @@ if ! bun install --frozen-lockfile; then
   exit 1
 fi
 
-# ── Prisma generate (refresh client, NO migrations) ──────────────────────────
-log "Regenerando Prisma client..."
+# ── Schema change (store pin + optional clerk) + prisma generate ─────────────
+log "Aplicando cambio de schema (store pin + optional clerk)..."
 if [ -f "prisma/schema.prisma" ]; then
+  if ! bunx prisma db execute --stdin <<'SQL'
+ALTER TABLE "Comercio" ALTER COLUMN "clerkUserId" DROP NOT NULL;
+ALTER TABLE "Comercio" ADD COLUMN IF NOT EXISTS "pin" TEXT;
+SQL
+  then
+    log "ERROR: cambio de schema falló."
+    git reset --hard "${PREV_COMMIT}"
+    log "Rollback de código a ${PREV_COMMIT}."
+    exit 1
+  fi
+  log "Regenerando Prisma client..."
   if ! bunx prisma generate; then
     log "ERROR: prisma generate falló."
     git reset --hard "${PREV_COMMIT}"

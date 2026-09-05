@@ -30,6 +30,22 @@ function calcScore(c: { recommendations?: number; isFounder?: boolean; isPremium
   return recs + founder + media;
 }
 
+async function resolveStoreId(clerkUserId: string | null, storeCode?: string): Promise<string> {
+  const owner = await repo.findStoreOwner(clerkUserId, storeCode);
+  if (!owner) throw { status: 404, message: "No tenés un comercio registrado" };
+  return owner.id;
+}
+
+export async function authWithPin(whatsapp: string, pin: string) {
+  if (!whatsapp || !pin) throw { status: 400, message: "Datos incompletos" };
+  const waClean = String(whatsapp).replace(/\D/g, "");
+  const store = await repo.findStoreByWhatsapp(waClean);
+  if (!store || !store.pin) throw { status: 401, message: "Numero o PIN incorrecto" };
+  const valid = await Bun.password.verify(String(pin), store.pin);
+  if (!valid) throw { status: 401, message: "Numero o PIN incorrecto" };
+  return { id: store.id, nombre: store.nombre, slug: store.slug };
+}
+
 export async function listStores(filters: { barrio?: string; rubro?: string }) {
   const list = await repo.findAllStoresPublic(filters);
   return list.sort((a, b) => calcScore(b) - calcScore(a));
@@ -39,14 +55,18 @@ export async function getStoreBySlug(slug: string) {
   return repo.findStoreBySlug(slug);
 }
 
-export async function getMyStore(clerkUserId: string) {
-  return repo.findMyStoreByClerkId(clerkUserId);
+export async function getMyStore(clerkUserId: string | null, storeCode?: string) {
+  const id = await resolveStoreId(clerkUserId, storeCode);
+  const store = await repo.findStoreById(id);
+  if (!store) throw { status: 404, message: "No tenés un comercio registrado" };
+  return store;
 }
 
-export async function createStore(clerkUserId: string, formData: FormData) {
-  const existing = await repo.findStoreByClerkId(clerkUserId);
-  if (existing) throw { status: 409, message: "Ya tenés un perfil de comercio creado" };
-
+export async function createStore(clerkUserId: string | null, formData: FormData) {
+  if (clerkUserId) {
+    const existing = await repo.findStoreByClerkId(clerkUserId);
+    if (existing) throw { status: 409, message: "Ya tenés un perfil de comercio creado" };
+  }
   const name        = sanitizeText(formData.get("nombre"),     100);
   const category    = sanitizeText(formData.get("rubro"),      100);
   const neighborhood = sanitizeText(formData.get("barrio"),    100);
@@ -71,6 +91,9 @@ export async function createStore(clerkUserId: string, formData: FormData) {
   const total    = await repo.countStores();
   const isFounder = total < 20;
 
+  const rawPin = formData.get("pin") as string | null;
+  const pin    = rawPin ? await Bun.password.hash(rawPin) : null;
+
   return repo.createStore({
     clerkUserId,
     nombre:      name,
@@ -85,11 +108,13 @@ export async function createStore(clerkUserId: string, formData: FormData) {
     isFounder,
     ...(photo  ? { foto: photo }   : {}),
     ...(photos.length ? { fotos: photos } : {}),
+    ...(pin ? { pin } : {}),
   });
 }
 
-export async function updateMyStore(clerkUserId: string, formData: FormData) {
-  const existing = await repo.findStoreByClerkId(clerkUserId);
+export async function updateMyStore(clerkUserId: string | null, storeCode: string | undefined, formData: FormData) {
+  const id = await resolveStoreId(clerkUserId, storeCode);
+  const existing = await repo.findStoreById(id);
   if (!existing) throw { status: 404, message: "No tenés un comercio registrado" };
 
   const patch: Record<string, unknown> = {};
@@ -124,14 +149,15 @@ export async function updateMyStore(clerkUserId: string, formData: FormData) {
   }
   if (newPhotos.length) patch.fotos = [...existing.fotos, ...newPhotos];
 
-  return repo.updateStoreByClerkId(clerkUserId, patch);
+  return repo.updateStoreById(id, patch);
 }
 
-export async function deleteGalleryPhoto(clerkUserId: string, url: string) {
-  const existing = await repo.findStoreByClerkId(clerkUserId);
+export async function deleteGalleryPhoto(clerkUserId: string | null, storeCode: string | undefined, url: string) {
+  const id = await resolveStoreId(clerkUserId, storeCode);
+  const existing = await repo.findStoreById(id);
   if (!existing) throw { status: 404, message: "No tenés un comercio registrado" };
   const photos = existing.fotos.filter(f => f !== url);
-  return repo.updateStoreByClerkId(clerkUserId, { fotos: photos });
+  return repo.updateStoreById(id, { fotos: photos });
 }
 
 // ── Recommend ─────────────────────────────────────────────────────────────────
@@ -182,8 +208,9 @@ export async function submitReview(slug: string, clerkUserId: string, score: num
 
 // ── Offers ────────────────────────────────────────────────────────────────────
 
-export async function createOffer(clerkUserId: string, formData: FormData) {
-  const store = await repo.findStoreByClerkId(clerkUserId);
+export async function createOffer(clerkUserId: string | null, storeCode: string | undefined, formData: FormData) {
+  const id = await resolveStoreId(clerkUserId, storeCode);
+  const store = await repo.findStoreById(id);
   if (!store) throw { status: 404, message: "No tenés un comercio registrado" };
 
   const title = sanitizeText(formData.get("titulo"), 150);
@@ -214,12 +241,14 @@ export async function createOffer(clerkUserId: string, formData: FormData) {
 }
 
 export async function updateOffer(
-  clerkUserId: string,
+  clerkUserId: string | null,
+  storeCode: string | undefined,
   offerId: string,
   body: FormData | Record<string, unknown>,
   isJson: boolean
 ) {
-  const store = await repo.findStoreByClerkId(clerkUserId);
+  const id = await resolveStoreId(clerkUserId, storeCode);
+  const store = await repo.findStoreById(id);
   if (!store) throw { status: 404, message: "No tenés un comercio registrado" };
   const offer = await repo.findOfferById(offerId);
   if (!offer || offer.comercioId !== store.id) throw { status: 404, message: "Oferta no encontrada" };
@@ -250,8 +279,9 @@ export async function updateOffer(
   });
 }
 
-export async function deleteOffer(clerkUserId: string, offerId: string) {
-  const store = await repo.findStoreByClerkId(clerkUserId);
+export async function deleteOffer(clerkUserId: string | null, storeCode: string | undefined, offerId: string) {
+  const id = await resolveStoreId(clerkUserId, storeCode);
+  const store = await repo.findStoreById(id);
   if (!store) throw { status: 404, message: "No tenés un comercio registrado" };
   const offer = await repo.findOfferById(offerId);
   if (!offer || offer.comercioId !== store.id) throw { status: 404, message: "Oferta no encontrada" };
@@ -261,8 +291,9 @@ export async function deleteOffer(clerkUserId: string, offerId: string) {
 
 // ── Products ──────────────────────────────────────────────────────────────────
 
-export async function createProduct(clerkUserId: string, formData: FormData) {
-  const store = await repo.findStoreByClerkId(clerkUserId);
+export async function createProduct(clerkUserId: string | null, storeCode: string | undefined, formData: FormData) {
+  const id = await resolveStoreId(clerkUserId, storeCode);
+  const store = await repo.findStoreById(id);
   if (!store) throw { status: 404, message: "No tenés un comercio registrado" };
 
   const name = sanitizeText(formData.get("nombre"), 200);
@@ -282,8 +313,9 @@ export async function createProduct(clerkUserId: string, formData: FormData) {
   });
 }
 
-export async function updateProduct(clerkUserId: string, productId: string, formData: FormData) {
-  const store   = await repo.findStoreByClerkId(clerkUserId);
+export async function updateProduct(clerkUserId: string | null, storeCode: string | undefined, productId: string, formData: FormData) {
+  const id = await resolveStoreId(clerkUserId, storeCode);
+  const store   = await repo.findStoreById(id);
   if (!store) throw { status: 404, message: "No tenés un comercio registrado" };
   const product = await repo.findProductById(productId);
   if (!product || product.comercioId !== store.id) throw { status: 404, message: "Producto no encontrado" };
@@ -301,8 +333,9 @@ export async function updateProduct(clerkUserId: string, productId: string, form
   });
 }
 
-export async function deleteProduct(clerkUserId: string, productId: string) {
-  const store   = await repo.findStoreByClerkId(clerkUserId);
+export async function deleteProduct(clerkUserId: string | null, storeCode: string | undefined, productId: string) {
+  const id = await resolveStoreId(clerkUserId, storeCode);
+  const store   = await repo.findStoreById(id);
   if (!store) throw { status: 404, message: "No tenés un comercio registrado" };
   const product = await repo.findProductById(productId);
   if (!product || product.comercioId !== store.id) throw { status: 404, message: "Producto no encontrado" };
@@ -355,7 +388,7 @@ export async function trackEvent(slug: string, type: string) {
 
 const DOW_LABELS = ["Dom", "Lun", "Mar", "Mié", "Jue", "Vie", "Sáb"];
 
-function calcProfileScore(store: Awaited<ReturnType<typeof repo.findMyStoreByClerkId>>) {
+function calcProfileScore(store: Awaited<ReturnType<typeof repo.findStoreById>>) {
   if (!store) return { score: 0, items: [] };
   const items = [
     { label: "Foto de portada",    done: !!store.foto,                                         points: 15 },
@@ -372,12 +405,10 @@ function calcProfileScore(store: Awaited<ReturnType<typeof repo.findMyStoreByCle
   return { score, items };
 }
 
-export async function getAnalytics(clerkUserId: string) {
-  const [store, fullStore] = await Promise.all([
-    repo.findStoreSlugByClerkId(clerkUserId),
-    repo.findMyStoreByClerkId(clerkUserId),
-  ]);
-  if (!store) throw { status: 404, message: "Comercio no encontrado" };
+export async function getAnalytics(clerkUserId: string | null, storeCode?: string) {
+  const id = await resolveStoreId(clerkUserId, storeCode);
+  const store = await repo.findStoreById(id);
+  if (!store) throw { status: 404, message: "No tenés un comercio registrado" };
 
   const now   = new Date();
   const toStr = (d: Date) => d.toISOString().slice(0, 10);
@@ -432,13 +463,14 @@ export async function getAnalytics(clerkUserId: string) {
   const clicks  = thisMonth["whatsapp_click"] ?? 0;
   const conversionRate = views > 0 ? Math.round((clicks / views) * 100 * 10) / 10 : 0;
 
-  const profileScore = calcProfileScore(fullStore);
+  const profileScore = calcProfileScore(store);
 
   return { thisMonth, lastMonth, last30, dailyLast30, dayOfWeek, weeklyData, conversionRate, profileScore };
 }
 
-export async function getPlan(clerkUserId: string) {
-  const store = await repo.findStoreByClerkId(clerkUserId);
+export async function getPlan(clerkUserId: string | null, storeCode?: string) {
+  const id = await resolveStoreId(clerkUserId, storeCode);
+  const store = await repo.findStoreById(id);
   if (!store) throw { status: 404, message: "Comercio no encontrado" };
 
   const plan   = resolvePlan(store.isPremium, store.isFounder);
@@ -459,10 +491,12 @@ export async function getPlan(clerkUserId: string) {
 }
 
 export async function checkAndIncrementAiUsage(
-  clerkUserId: string,
+  clerkUserId: string | null,
+  storeCode: string | undefined,
   type: "analysis" | "image"
 ) {
-  const store  = await repo.findStoreByClerkId(clerkUserId);
+  const id = await resolveStoreId(clerkUserId, storeCode);
+  const store  = await repo.findStoreById(id);
   if (!store) throw { status: 404, message: "Comercio no encontrado" };
 
   const plan   = resolvePlan(store.isPremium, store.isFounder);
@@ -484,12 +518,15 @@ export async function checkAndIncrementAiUsage(
 
 // ── AI Recommendations ────────────────────────────────────────────────────────
 
-export async function generateRecommendations(clerkUserId: string) {
-  await checkAndIncrementAiUsage(clerkUserId, "analysis");
+export async function generateRecommendations(clerkUserId: string | null, storeCode?: string) {
+  await checkAndIncrementAiUsage(clerkUserId, storeCode, "analysis");
 
   const [analytics, fullStore] = await Promise.all([
-    getAnalytics(clerkUserId),
-    repo.findMyStoreByClerkId(clerkUserId),
+    getAnalytics(clerkUserId, storeCode),
+    (async () => {
+      const id = await resolveStoreId(clerkUserId, storeCode);
+      return repo.findStoreById(id);
+    })(),
   ]);
 
   if (!fullStore) throw { status: 404, message: "Comercio no encontrado" };
